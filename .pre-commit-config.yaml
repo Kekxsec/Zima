@@ -1,0 +1,32 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: no-commit-to-branch
+        args: [--branch, main]
+      - id: detect-private-key
+
+  - repo: local
+    hooks:
+      - id: check-imports
+        name: Enforce dependency direction
+        entry: python scripts/check_imports.py
+        language: python
+        pass_filenames: false
+      - id: no-env-files
+        name: Prevent .env commit
+        entry: bash -c 'git diff --cached --name-only | grep -q "^\.env$" && echo ".env must not be committed" && exit 1 || exit 0'
+        language: system
+        pass_filenames: false

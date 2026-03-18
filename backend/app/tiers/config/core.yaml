@@ -1,0 +1,5 @@
+enabled_domains:
+  - identity
+  - accounts
+  - device
+  - browser

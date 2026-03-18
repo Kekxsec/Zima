@@ -1,0 +1,19 @@
+enabled_domains:
+  - identity
+  - accounts
+  - device
+  - browser
+  - network
+  - privacy
+  - darkweb
+  - backup
+  - threat_intel
+  - domain
+  - email
+  - infrastructure
+  - secrets
+  - supply_chain
+  - cloud
+  - saas
+  - incident_readiness
+  - compliance

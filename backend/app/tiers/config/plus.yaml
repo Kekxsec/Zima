@@ -1,0 +1,10 @@
+enabled_domains:
+  - identity
+  - accounts
+  - device
+  - browser
+  - network
+  - privacy
+  - darkweb
+  - backup
+  - threat_intel
