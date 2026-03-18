@@ -1,2 +1,2 @@
 # backend/app/providers/breach/hibp/exceptions.py
-"""HIBP provider exceptions — implemented in Stage 4."""
+# Not used. Use ProviderError from backend.app.providers.base.exceptions.

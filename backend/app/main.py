@@ -5,13 +5,13 @@ from contextlib import asynccontextmanager
 import secure
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 
 from backend.app.api.router import api_router
 from backend.app.core.config import settings
 from backend.app.core.logging import configure_logging
+from backend.app.core.rate_limit import limiter
 
 
 @asynccontextmanager
@@ -19,8 +19,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging()
     yield
 
-
-limiter = Limiter(key_func=get_remote_address)
 
 secure_headers = secure.Secure(
     hsts=secure.StrictTransportSecurity().max_age(31536000).include_subdomains(),

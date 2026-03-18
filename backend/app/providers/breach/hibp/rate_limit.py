@@ -1,2 +1,2 @@
 # backend/app/providers/breach/hibp/rate_limit.py
-"""HIBP rate limiting — implemented in Stage 4."""
+# Not used. Rate limiting is handled by BaseProviderClient via tenacity — see base/client.py.

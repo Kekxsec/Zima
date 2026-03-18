@@ -391,6 +391,8 @@ tests/
 ```toml
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
@@ -403,5 +405,7 @@ filterwarnings = [
 ```
 
 `asyncio_mode = "auto"` means every `async def test_*` is automatically treated as an async test — no need to decorate with `@pytest.mark.asyncio`.
+
+`asyncio_default_fixture_loop_scope = "session"` and `asyncio_default_test_loop_scope = "session"` ensure the session-scoped `test_engine` fixture shares the same event loop as tests. Without this, asyncpg raises `RuntimeError: Task got Future attached to a different loop` when API tests hit the database.
 
 `filterwarnings = ["error"]` catches deprecation warnings before they become breaking changes.

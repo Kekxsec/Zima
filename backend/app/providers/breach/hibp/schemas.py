@@ -1,2 +1,2 @@
 # backend/app/providers/breach/hibp/schemas.py
-"""HIBP response schemas — implemented in Stage 4."""
+# Not used. HibpProvider returns list[dict[str, Any]] — see client.py.
