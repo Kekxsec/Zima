@@ -1,18 +1,11 @@
 # backend/app/providers/breach/hibp/client.py
 from __future__ import annotations
 
-# --- Migration notes (severity/inheritance stripped) ---
-# STRIPPED: severity=FindingSeverity.HIGH
-# --- End migration notes ---
-# Extracted/adapted from SpiderFoot module: modules/sfp_haveibeenpwned.py (MIT licensed)
-# Copyright (c) Steve Micallef.
 import urllib.parse
 from typing import Any
 
 from backend.app.providers.base.client import BaseProviderClient
-from backend.app.providers.base.exceptions import (
-    ProviderError,
-)
+from backend.app.providers.base.exceptions import ProviderError
 
 
 class HibpProvider(BaseProviderClient):
@@ -28,21 +21,19 @@ class HibpProvider(BaseProviderClient):
         api_key = str(self._api_key).strip()
         if not api_key:
             raise ProviderError(
-                message="HaveIBeenPwned API key is required",
-                retryable=False,
+                message="HaveIBeenPwned API key is required", retryable=False
             )
 
         findings = []
-        evidence = []
         _inputs: list[tuple[str, str]] = []
         if email is not None:
             _inputs.append(("email", email))
         if phone_number is not None:
             _inputs.append(("phone_number", phone_number))
+
         for _entity_type, _value in _inputs:
             if _entity_type not in {"email", "phone"}:
                 continue
-
             target_value = _value.strip()
             if not target_value:
                 continue
@@ -85,16 +76,6 @@ class HibpProvider(BaseProviderClient):
                         entity_value=_value,
                         confidence=0.9,
                         tags=["breach", "credential_exposure", "passive"],
-                    )
-                )
-
-            if payload:
-                evidence.append(
-                    dict(
-                        source=self.name,
-                        description=f"HaveIBeenPwned breach response for {_value}",
-                        raw={"target": _value, "breach_count": len(payload)},
-                        confidence=0.9,
                     )
                 )
 

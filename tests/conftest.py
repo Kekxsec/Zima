@@ -14,6 +14,9 @@ from sqlalchemy.ext.asyncio import (
 from backend.app.core.config import settings
 from backend.app.db.base import Base
 from backend.app.db.session import get_db_session
+from backend.app.jobs.models import (
+    Scan,  # noqa: F401 — registers Scan table in Base.metadata
+)
 from backend.app.main import app
 
 # ─── Engine ───────────────────────────────────────────────────────────────────
@@ -164,20 +167,30 @@ async def verified_email_asset(db_session: AsyncSession, auth_client: AsyncClien
 @pytest.fixture
 def mock_hibp_no_breaches(respx_mock):  # type: ignore[no-untyped-def]
     """Mocks HIBP to return no breaches for any email."""
+    from unittest.mock import patch
+
     import httpx
+    from pydantic import SecretStr
 
     respx_mock.get(
         url__regex=r"https://haveibeenpwned\.com/api/v3/breachedaccount/.*"
     ).mock(return_value=httpx.Response(404))
-    return respx_mock
+    with patch(
+        "backend.app.modules.identity.breach_monitor.service.settings"
+    ) as mock_settings:
+        mock_settings.hibp_api_key = SecretStr("test-key")
+        yield respx_mock
+    return
 
 
 @pytest.fixture
 def mock_hibp_with_breaches(respx_mock):  # type: ignore[no-untyped-def]
     """Mocks HIBP to return two breaches — one with passwords, one without."""
     import json
+    from unittest.mock import patch
 
     import httpx
+    from pydantic import SecretStr
 
     respx_mock.get(
         url__regex=r"https://haveibeenpwned\.com/api/v3/breachedaccount/.*"
@@ -222,7 +235,12 @@ def mock_hibp_with_breaches(respx_mock):  # type: ignore[no-untyped-def]
             ).encode(),
         )
     )
-    return respx_mock
+    with patch(
+        "backend.app.modules.identity.breach_monitor.service.settings"
+    ) as mock_settings:
+        mock_settings.hibp_api_key = SecretStr("test-key")
+        yield respx_mock
+    return
 
 
 @pytest.fixture

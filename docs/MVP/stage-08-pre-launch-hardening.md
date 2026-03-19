@@ -10,14 +10,15 @@ Work through each item and mark it verified before launch. These map directly to
 
 ### Authentication and Session Security
 
-- [ ] OTP codes are hashed with SHA-256 before storage — raw codes never appear in the database
-- [ ] OTP rate limiting enforced: 3 requests per 15 minutes per IP on `/otp/request`
-- [ ] OTP verification rate limiting enforced: 10 attempts per 15 minutes per IP on `/otp/verify`
-- [ ] All auth failure paths return identical HTTP 401 with identical response body (no enumeration)
-- [ ] JWT `type` claim validated on every token decode (prevents access tokens being used as refresh tokens)
-- [ ] JWT secret is at least 256 bits of entropy (verify with `len(secrets.token_hex(32)) == 64`)
-- [ ] Deleted users cannot sign in (checked in `get_current_user` dependency)
-- [ ] No passwords anywhere in the codebase (grep for `password`, `bcrypt`, `passlib` — should return zero hits)
+- [x] OTP codes are hashed with SHA-256 before storage — raw codes never appear in the database
+- [x] OTP rate limiting enforced: 3 requests per 15 minutes per IP on `/otp/request` (Redis-backed, shared across workers)
+- [x] OTP verification rate limiting enforced: 10 attempts per 15 minutes per IP on `/otp/verify` (Redis-backed)
+- [x] Per-email OTP lockout: 5 consecutive failures triggers a 15-minute lockout (DB-backed, Redis-independent)
+- [x] All auth failure paths return identical HTTP 401 with identical response body (no enumeration)
+- [x] JWT `type` claim validated on every token decode (prevents access tokens being used as refresh tokens)
+- [x] JWT secret minimum entropy enforced at startup: `Settings.validate_jwt_secret_key` rejects keys shorter than 32 characters
+- [x] Deleted users cannot sign in (checked in `get_current_user` dependency)
+- [x] No passwords anywhere in the codebase (grep for `password`, `bcrypt`, `passlib` — should return zero hits)
 
 ### Transport Security
 
@@ -39,8 +40,9 @@ Work through each item and mark it verified before launch. These map directly to
 
 ### CORS
 
-- [ ] `CORS_ALLOWED_ORIGINS` in environment — never hardcoded
-- [ ] Production value is `https://yourdomain.com` only — not `*`
+- [x] `CORS_ALLOWED_ORIGINS` in environment — never hardcoded
+- [x] Production guard: `Settings.validate_production_settings` raises at startup if any origin contains `localhost` or `127.0.0.1` when `APP_ENV=production`
+- [ ] Production value is `https://yourdomain.com` only — set in Railway environment before launch
 - [ ] CORS preflight returns correct `Access-Control-Allow-Methods`
 
 ### Input Validation
@@ -62,8 +64,9 @@ Work through each item and mark it verified before launch. These map directly to
 
 ### Rate Limiting
 
-- [ ] `/auth/otp/request` — 3 per 15 minutes per IP
-- [ ] `/auth/otp/verify` — 10 per 15 minutes per IP
+- [x] `/auth/otp/request` — 3 per 15 minutes per IP (real IP from `X-Forwarded-For`, Redis-backed)
+- [x] `/auth/otp/verify` — 10 per 15 minutes per IP (real IP from `X-Forwarded-For`, Redis-backed)
+- [x] Per-email lockout after 5 failures (DB-backed, Redis-independent fallback)
 - [ ] `/scans/` POST — 5 per hour per user
 - [ ] Global rate limiter configured for the API as a whole
 

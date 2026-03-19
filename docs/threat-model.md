@@ -1,5 +1,5 @@
 # Zima — Threat Model (MVP)
-Last updated: 2026-03-18
+Last updated: 2026-03-19
 Scope: MVP backend API
 
 ## Assets to Protect
@@ -23,7 +23,7 @@ Scope: MVP backend API
 ## Threat Matrix
 | Threat | Attack Vector | Likelihood | Impact | Mitigation |
 |---|---|---|---|---|
-| OTP brute force | POST /auth/otp/verify | Medium | High | Rate limiting (10/15min/IP) + per-email lockout |
+| OTP brute force | POST /auth/otp/verify | Medium | High | Rate limiting (10/15min/IP, Redis-backed, shared across workers) + per-email lockout after 5 consecutive failures (15-min window) |
 | Account enumeration | OTP request response timing | Medium | Low | Identical response for all outcomes |
 | Scan abuse (scanning emails user doesn't own) | POST /scans/ | Low | High | is_verified=True gate on all scan inputs |
 | JWT theft | XSS, network interception | Low | High | HTTPS, CSP, short expiry, HttpOnly cookies if browser |
@@ -33,11 +33,19 @@ Scope: MVP backend API
 | Stripe webhook replay | Replay captured valid webhook | Low | Medium | Webhook signature verification on every request |
 | GDPR data exfiltration | Authenticated data export abuse | Low | High | Export requires auth, logs to audit trail |
 
+## Rate Limiter Behaviour
+
+The rate limiter (slowapi + Redis) is **fail-open**: if Redis becomes transiently unavailable after startup, requests are allowed through rather than blocked. At startup, a Redis connection failure raises immediately (fail-closed). Monitor Redis availability and alert on connection failures to avoid unprotected windows.
+
+The per-IP key is extracted from `X-Forwarded-For` (leftmost entry) then `X-Real-IP`, then `request.client.host`. On Railway all traffic is proxied through the load balancer, so the XFF value is authoritative.
+
 ## Accepted Risks
 - OTP delivered via email: if email is compromised, attacker can sign in.
   Mitigation: this is the same risk model as every email-based auth system.
 - Provider API availability: if HIBP is down, scans degrade gracefully.
   No mitigation needed — graceful degradation is already implemented.
+- Transient Redis outage disables IP-based rate limiting. Per-email lockout
+  (DB-backed) remains active regardless of Redis state.
 
 ## Out of Scope (MVP)
 - Physical access to Railway infrastructure

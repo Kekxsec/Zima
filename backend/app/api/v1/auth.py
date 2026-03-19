@@ -9,7 +9,7 @@ from backend.app.core.exceptions import (
     AuthTokenExpiredException,
     AuthTokenInvalidException,
 )
-from backend.app.core.rate_limit import limiter
+from backend.app.core.rate_limit import get_real_ip, limiter
 from backend.app.email.service import EmailService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -35,7 +35,7 @@ async def request_otp(
 
     This prevents account enumeration attacks.
     """
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = get_real_ip(request)
     raw_code = await auth_service.request_otp(
         email=str(body.email),
         requesting_ip=client_ip,
@@ -70,7 +70,7 @@ async def verify_otp(
             email=str(body.email),
             code=body.code,
         )
-    except (AuthTokenInvalidException, AuthTokenExpiredException, Exception):
+    except (AuthTokenInvalidException, AuthTokenExpiredException):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired code.",

@@ -2,7 +2,7 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, Index, String
+from sqlalchemy import Boolean, DateTime, Index, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -34,6 +34,11 @@ class User(Base, TimestampMixin):
     privacy_policy_accepted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # OTP brute-force protection — consecutive failure counter and lockout window
+    otp_fail_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    otp_locked_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     @property
     def is_deleted(self) -> bool:
@@ -63,7 +68,12 @@ class AuthToken(Base):
     )
     requested_from_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
 
-    __table_args__ = (Index("ix_auth_token_email_hash", "email", "code_hash"),)
+    __table_args__ = (
+        Index("ix_auth_token_email_hash", "email", "code_hash"),
+        # Composite index for count_active_for_email and get_valid_token queries
+        # which filter by (email, expires_at) with used_at IS NULL condition.
+        Index("ix_auth_token_email_expires", "email", "expires_at"),
+    )
 
     @property
     def is_expired(self) -> bool:
