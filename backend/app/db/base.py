@@ -16,6 +16,10 @@ class TimestampMixin:
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
+        # NOTE: onupdate fires only for ORM single-object updates.
+        # Bulk UPDATE statements (session.execute(update(...))) bypass this
+        # and will NOT update updated_at automatically. Any bulk update path
+        # must set updated_at explicitly.
         onupdate=lambda: datetime.now(UTC),
         nullable=False,
     )

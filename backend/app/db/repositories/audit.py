@@ -30,6 +30,7 @@ class AuditRepository:
             from backend.app.core.logging import get_logger
 
             get_logger(__name__).error("audit.log_failed", error=str(e))
+            raise
 
     async def get_for_user(
         self,

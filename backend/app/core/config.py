@@ -1,7 +1,7 @@
 # backend/app/core/config.py
 from typing import Literal
 
-from pydantic import SecretStr, field_validator
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -38,6 +38,33 @@ class Settings(BaseSettings):
         if isinstance(v, str):
             return [s.strip() for s in v.split(",") if s.strip()]
         return v
+
+    @field_validator("jwt_secret_key")
+    @classmethod
+    def validate_jwt_secret_key(cls, v: SecretStr) -> SecretStr:
+        """Enforce minimum entropy — HS256 requires at least 32 bytes.
+        Generate: python -c "import secrets; print(secrets.token_hex(32))"
+        """
+        if len(v.get_secret_value()) < 32:
+            raise ValueError(
+                "jwt_secret_key must be at least 32 characters. "
+                "Generate: python -c "
+                '"import secrets; print(secrets.token_hex(32))"'
+            )
+        return v
+
+    @model_validator(mode="after")
+    def validate_production_settings(self) -> "Settings":
+        """Guard against unsafe defaults reaching production."""
+        if self.app_env == "production":
+            for origin in self.cors_allowed_origins:
+                if "localhost" in origin or "127.0.0.1" in origin:
+                    raise ValueError(
+                        f"CORS origin '{origin}' contains localhost which is not "
+                        "permitted in production. Set CORS_ALLOWED_ORIGINS to your "
+                        "production frontend URL(s)."
+                    )
+        return self
 
     # Email
     resend_api_key: SecretStr | None = None

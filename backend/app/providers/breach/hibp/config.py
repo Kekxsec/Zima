@@ -1,2 +1,2 @@
 # backend/app/providers/breach/hibp/config.py
-"""HIBP provider configuration — implemented in Stage 4."""
+# Not used. Configuration is handled via settings — see client.py.

@@ -9,10 +9,10 @@ dependencies = [
     "alembic>=1.13.0",
     "asyncpg>=0.29.0",
     "aiosqlite>=0.20.0",
-    "pydantic>=2.7.0",
+    "pydantic[email]>=2.7.0",
     "pydantic-settings>=2.2.0",
     "httpx>=0.27.0",
-    "python-jose[cryptography]>=3.3.0",
+    "PyJWT>=2.8.0",
     "redis[hiredis]>=5.0.0",
     "tenacity>=8.3.0",
     "structlog>=24.1.0",
@@ -52,12 +52,16 @@ ignore = ["ANN101", "ANN102"]
 "backend/app/api/dependencies.py" = ["B008"]
 "backend/app/api/v1/*.py" = ["B008"]
 "backend/app/db/migrations/versions/*.py" = ["E501"]
+# core/exceptions.py uses Exception suffix intentionally (project convention overrides N818)
+"backend/app/core/exceptions.py" = ["N818"]
 # Scripts: suppress print (T20), annotation (ANN), security (S), and line-length (E501)
 "scripts/*.py" = ["T20", "ANN", "S", "E501"]
 # Provider implementations: pre-written code reviewed in Stage 4.
 # E501/ANN204/ANN401: HTTP client methods have long signatures and JSON returns Any.
 # E402/C408: import layout and dict literals fixed in Stage 4.
 "backend/app/providers/**/*.py" = ["E501", "ANN204", "ANN202", "ANN401", "E402", "C408", "C401", "B020", "S104", "S110", "S112", "S324", "S603"]
+# Tests: assert is the correct pattern (S101), annotations not required (ANN), E501 for long docstrings
+"tests/**/*.py" = ["S101", "ANN", "E501"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -71,4 +75,14 @@ ignore_errors = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests", "backend"]
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning:httpx",
+    "ignore::DeprecationWarning:sqlalchemy",
+]

@@ -189,11 +189,13 @@ Do not write a different implementation. Copy it exactly.
 
 ## 2.4 Auth Utils
 
+**JWT library:** Use `PyJWT` (`import jwt`). Do NOT use `python-jose` — it is unmaintained and has known CVEs. `PyJWT` is declared in `pyproject.toml` as `PyJWT>=2.8.0`.
+
 ```python
 # backend/app/auth/utils.py
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from jose import JWTError, jwt
+import jwt
 
 from backend.app.core.config import settings
 
@@ -204,7 +206,7 @@ def create_access_token(subject: str, tier: str) -> str:
     subject: str representation of user UUID
     tier: user's current tier name (e.g. "core", "shield")
     """
-    expire = datetime.now(timezone.utc) + timedelta(
+    expire = datetime.now(UTC) + timedelta(
         minutes=settings.jwt_access_token_expire_minutes
     )
     payload = {
@@ -220,14 +222,14 @@ def create_access_token(subject: str, tier: str) -> str:
     )
 
 
-def decode_access_token(token: str) -> dict:
+def decode_access_token(token: str) -> dict[str, object]:
     """
     Decodes and validates a JWT access token.
     Raises ValueError if the token is invalid, expired, or wrong type.
-    Never raises JWTError — always converts to ValueError.
+    Never raises jwt.PyJWTError — always converts to ValueError.
     """
     try:
-        payload = jwt.decode(
+        payload: dict[str, object] = jwt.decode(
             token,
             settings.jwt_secret_key.get_secret_value(),
             algorithms=[settings.jwt_algorithm],
@@ -235,7 +237,7 @@ def decode_access_token(token: str) -> dict:
         if payload.get("type") != "access":
             raise ValueError("Token type is not 'access'")
         return payload
-    except JWTError as exc:
+    except jwt.PyJWTError as exc:
         raise ValueError(f"Invalid token: {exc}") from exc
 ```
 
@@ -336,6 +338,8 @@ Do not write a different implementation. Copy it exactly.
 
 ## 2.9 Auth Service
 
+**Note:** `AuthService.__init__` requires `audit_repo: AuditRepository`. Wire it via `get_auth_service` in `api/dependencies.py`. Audit events (`SIGN_IN_REQUESTED`, `SIGN_IN_SUCCESS`, `SIGN_IN_FAILED`, `OTP_RATE_LIMITED`) must be emitted on every auth path — including failures — before the session commits.
+
 ```python
 # backend/app/auth/service.py
 import hashlib
@@ -345,6 +349,7 @@ from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.app.assets.models import Asset
 from backend.app.auth.models import AuthToken, User
 from backend.app.core.exceptions import (
     AuthOTPRateLimitException,
@@ -413,7 +418,10 @@ class AuthService:
         # Find existing user via their primary email asset
         user = await self.user_repo.get_by_email(email)
         if not user:
-            # First sign-in — create user row
+            # First sign-in — create user row and a placeholder email asset.
+            # The asset is unverified here; AssetService.register_verified_email()
+            # marks it verified after OTP confirmation. The asset must exist now
+            # so verify_otp can look up the user by email via the Asset join.
             user = User(
                 privacy_policy_accepted_at=(
                     datetime.now(timezone.utc) if privacy_policy_accepted else None
@@ -421,6 +429,14 @@ class AuthService:
             )
             self.session.add(user)
             await self.session.flush()  # Assigns user.id without committing
+            asset = Asset(
+                user_id=user.id,
+                entity_type="email",
+                value=email,
+                is_primary=True,
+                is_verified=False,
+            )
+            self.session.add(asset)
             logger.info("auth.new_user_created", user_id=str(user.id))
 
         raw_code = _generate_code()
@@ -670,15 +686,23 @@ async def verify_otp(
 
 ## 2.14 Router and Rate Limiting
 
-Add rate limiting decorators to auth endpoints. The `limiter` is defined in `main.py`. Import it in the auth router:
-
-In `backend/app/main.py`, after creating the `limiter` instance, ensure it is importable:
+**Implementation note:** The `limiter` instance lives in `backend/app/core/rate_limit.py`, NOT in `main.py`. Importing from `main.py` creates a circular import (`main → router → auth → main`). Create a dedicated module instead:
 
 ```python
-# ADDITION TO: backend/app/main.py
-# Add this import at the top of the file after the limiter is created:
-# The limiter instance must be accessible to routers for @limiter.limit decorators.
-# It is accessed via: from backend.app.main import limiter
+# backend/app/core/rate_limit.py
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
+# Shared limiter instance — import from here in all endpoint modules.
+limiter = Limiter(key_func=get_remote_address)
+```
+
+In `backend/app/main.py`, import from `core.rate_limit`:
+
+```python
+# CHANGE IN: backend/app/main.py
+# Replace any inline Limiter() instantiation with:
+from backend.app.core.rate_limit import limiter
 ```
 
 Add the rate limit decorators to the auth endpoints in `auth.py`:
@@ -686,7 +710,7 @@ Add the rate limit decorators to the auth endpoints in `auth.py`:
 ```python
 # ADDITION TO: backend/app/api/v1/auth.py
 # Add these imports at the top:
-from backend.app.main import limiter
+from backend.app.core.rate_limit import limiter
 
 # Add these decorators to the endpoint functions:
 # @router.post("/otp/request", ...) becomes:
@@ -902,14 +926,15 @@ async def test_verify_otp_returns_401_for_wrong_code(client: AsyncClient) -> Non
 @pytest.mark.asyncio
 async def test_authenticated_endpoint_rejects_missing_token(client: AsyncClient) -> None:
     """Verifies the auth dependency works on a protected endpoint."""
-    response = await client.get("/api/v1/scans/")
+    # Use /account/audit-log — it's a real auth-protected endpoint (scans/ is a stub until Stage 6)
+    response = await client.get("/api/v1/account/audit-log")
     assert response.status_code == 401
 
 
 @pytest.mark.asyncio
 async def test_authenticated_endpoint_rejects_invalid_token(client: AsyncClient) -> None:
     response = await client.get(
-        "/api/v1/scans/",
+        "/api/v1/account/audit-log",
         headers={"Authorization": "Bearer invalidtoken"},
     )
     assert response.status_code == 401

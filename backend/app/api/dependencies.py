@@ -10,6 +10,7 @@ from backend.app.auth.models import User
 from backend.app.auth.service import AuthService
 from backend.app.auth.utils import decode_access_token
 from backend.app.db.repositories.assets import AssetRepository
+from backend.app.db.repositories.audit import AuditRepository
 from backend.app.db.repositories.auth_tokens import AuthTokenRepository
 from backend.app.db.repositories.users import UserRepository
 from backend.app.db.session import get_db_session
@@ -56,10 +57,12 @@ async def get_auth_service(
 ) -> AuthService:
     user_repo = UserRepository(db)
     token_repo = AuthTokenRepository(db)
+    audit_repo = AuditRepository(db)
     return AuthService(
         session=db,
         user_repo=user_repo,
         token_repo=token_repo,
+        audit_repo=audit_repo,
     )
 
 

@@ -11,9 +11,12 @@ from backend.app.assets.models import Asset  # noqa: F401
 # Import all models so Base.metadata is populated
 from backend.app.auth.models import AuthToken, User  # noqa: F401
 from backend.app.core.config import settings
+from backend.app.correlation.models import Finding  # noqa: F401
 from backend.app.db.base import Base
 from backend.app.db.models.audit import AuditEvent  # noqa: F401
 from backend.app.jobs.models import Scan  # noqa: F401
+from backend.app.scoring.models import Score  # noqa: F401
+from backend.app.signals.models import Signal  # noqa: F401
 
 config = context.config
 

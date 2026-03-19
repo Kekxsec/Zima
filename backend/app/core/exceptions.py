@@ -1,62 +1,62 @@
 # backend/app/core/exceptions.py
 
 
-class ZimaBaseError(Exception):
+class ZimaBaseException(Exception):
     def __init__(self, message: str, code: str | None = None) -> None:
         self.message = message
         self.code = code
         super().__init__(message)
 
 
-class ProviderError(ZimaBaseError):
+class ProviderException(ZimaBaseException):
     pass
 
 
-class ProviderAuthError(ProviderError):
+class ProviderAuthException(ProviderException):
     pass
 
 
-class ProviderRateLimitError(ProviderError):
+class ProviderRateLimitException(ProviderException):
     pass
 
 
-class ProviderTimeoutError(ProviderError):
+class ProviderTimeoutException(ProviderException):
     pass
 
 
-class ModuleError(ZimaBaseError):
+class ModuleException(ZimaBaseException):
     pass
 
 
-class SignalValidationError(ZimaBaseError):
+class SignalValidationException(ZimaBaseException):
     pass
 
 
-class TierPermissionError(ZimaBaseError):
+class TierPermissionException(ZimaBaseException):
     pass
 
 
-class EntityNotFoundError(ZimaBaseError):
+class EntityNotFoundException(ZimaBaseException):
     pass
 
 
 # Auth
-class AuthTokenInvalidError(ZimaBaseError):
+class AuthTokenInvalidException(ZimaBaseException):
     pass
 
 
-class AuthTokenExpiredError(ZimaBaseError):
+class AuthTokenExpiredException(ZimaBaseException):
     pass
 
 
-class AuthTokenAlreadyUsedError(ZimaBaseError):
+class AuthTokenAlreadyUsedException(ZimaBaseException):
     pass
 
 
-class AuthOTPRateLimitError(ZimaBaseError):
+class AuthOTPRateLimitException(ZimaBaseException):
     pass
 
 
 # GDPR
-class UserDeletionError(ZimaBaseError):
+class UserDeletionException(ZimaBaseException):
     pass
