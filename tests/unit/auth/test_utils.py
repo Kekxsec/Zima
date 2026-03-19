@@ -25,7 +25,7 @@ def test_decode_rejects_wrong_type() -> None:
     """A token with type != 'access' must be rejected."""
     from datetime import datetime, timedelta
 
-    from jose import jwt
+    import jwt
 
     from backend.app.core.config import settings
 

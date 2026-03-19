@@ -26,7 +26,7 @@ class UserRepository:
             .where(
                 Asset.entity_type == "email",
                 Asset.value == email,
-                Asset.is_primary == True,  # noqa: E712
+                Asset.is_primary.is_(True),
             )
             .limit(1)
         )
@@ -36,7 +36,7 @@ class UserRepository:
         result = await self.session.execute(
             select(User).where(
                 User.id == user_id,
-                User.is_active == True,  # noqa: E712
+                User.is_active.is_(True),
                 User.deleted_at.is_(None),
             )
         )

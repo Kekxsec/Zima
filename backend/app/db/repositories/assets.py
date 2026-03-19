@@ -35,7 +35,7 @@ class AssetRepository:
             select(Asset).where(
                 Asset.user_id == user_id,
                 Asset.entity_type == entity_type,
-                Asset.is_verified == True,  # noqa: E712
+                Asset.is_verified.is_(True),
             )
         )
         return list(result.scalars().all())
@@ -51,7 +51,7 @@ class AssetRepository:
             select(Asset).where(
                 Asset.user_id == user_id,
                 Asset.entity_type == "email",
-                Asset.is_primary == True,  # noqa: E712
+                Asset.is_primary.is_(True),
             )
         )
         return result.scalar_one_or_none()

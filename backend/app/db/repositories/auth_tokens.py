@@ -1,7 +1,7 @@
 # backend/app/db/repositories/auth_tokens.py
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.auth.models import AuthToken
@@ -57,3 +57,18 @@ class AuthTokenRepository:
             )
             .values(used_at=datetime.now(UTC))
         )
+
+    async def delete_expired(self, older_than_days: int = 7) -> int:
+        """
+        Deletes tokens that expired more than `older_than_days` ago.
+        Intended to be called periodically (e.g. daily) to prevent auth_tokens
+        table bloat. Returns the number of rows deleted.
+
+        Safe to run at any time — only targets tokens past their expiry window.
+        A 7-day grace period retains tokens for forensic/audit review before purge.
+        """
+        cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
+        result = await self.session.execute(
+            delete(AuthToken).where(AuthToken.expires_at < cutoff)
+        )
+        return result.rowcount  # type: ignore[return-value]

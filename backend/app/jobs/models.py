@@ -31,5 +31,5 @@ class Scan(Base, TimestampMixin):
     )
     signals_created: Mapped[int] = mapped_column(Integer, default=0)
     findings_created: Mapped[int] = mapped_column(Integer, default=0)
-    domains_run: Mapped[list[str]] = mapped_column(JSON, default=list)
+    domains_run: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     error_detail: Mapped[str | None] = mapped_column(String(1024), nullable=True)

@@ -2,6 +2,7 @@
 import uuid
 from datetime import UTC, datetime
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.assets.models import Asset
@@ -42,6 +43,23 @@ class AssetService:
             verified_at=datetime.now(UTC),
         )
         self.session.add(asset)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError:
+            # Two concurrent verify_otp calls for the same email raced to insert.
+            # The constraint uq_asset_user_type_value caught the duplicate.
+            # Roll back and return the row the winning request created.
+            await self.session.rollback()
+            winner = await self.asset_repo.get_by_value(
+                user_id=user_id,
+                entity_type="email",
+                value=email,
+            )
+            if winner is None:
+                # Should be unreachable: IntegrityError means the row exists.
+                raise
+            logger.info("asset.email_register_race_resolved", user_id=str(user_id))
+            return winner
+
         logger.info("asset.email_registered", user_id=str(user_id))
         return asset

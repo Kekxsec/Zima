@@ -1,7 +1,7 @@
 # backend/app/auth/utils.py
 from datetime import UTC, datetime, timedelta
 
-from jose import JWTError, jwt
+import jwt
 
 from backend.app.core.config import settings
 
@@ -32,7 +32,7 @@ def decode_access_token(token: str) -> dict[str, object]:
     """
     Decodes and validates a JWT access token.
     Raises ValueError if the token is invalid, expired, or wrong type.
-    Never raises JWTError — always converts to ValueError.
+    Never raises jwt.PyJWTError — always converts to ValueError.
     """
     try:
         payload: dict[str, object] = jwt.decode(
@@ -43,5 +43,5 @@ def decode_access_token(token: str) -> dict[str, object]:
         if payload.get("type") != "access":
             raise ValueError("Token type is not 'access'")
         return payload
-    except JWTError as exc:
+    except jwt.PyJWTError as exc:
         raise ValueError(f"Invalid token: {exc}") from exc

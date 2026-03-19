@@ -189,11 +189,13 @@ Do not write a different implementation. Copy it exactly.
 
 ## 2.4 Auth Utils
 
+**JWT library:** Use `PyJWT` (`import jwt`). Do NOT use `python-jose` — it is unmaintained and has known CVEs. `PyJWT` is declared in `pyproject.toml` as `PyJWT>=2.8.0`.
+
 ```python
 # backend/app/auth/utils.py
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from jose import JWTError, jwt
+import jwt
 
 from backend.app.core.config import settings
 
@@ -204,7 +206,7 @@ def create_access_token(subject: str, tier: str) -> str:
     subject: str representation of user UUID
     tier: user's current tier name (e.g. "core", "shield")
     """
-    expire = datetime.now(timezone.utc) + timedelta(
+    expire = datetime.now(UTC) + timedelta(
         minutes=settings.jwt_access_token_expire_minutes
     )
     payload = {
@@ -220,14 +222,14 @@ def create_access_token(subject: str, tier: str) -> str:
     )
 
 
-def decode_access_token(token: str) -> dict:
+def decode_access_token(token: str) -> dict[str, object]:
     """
     Decodes and validates a JWT access token.
     Raises ValueError if the token is invalid, expired, or wrong type.
-    Never raises JWTError — always converts to ValueError.
+    Never raises jwt.PyJWTError — always converts to ValueError.
     """
     try:
-        payload = jwt.decode(
+        payload: dict[str, object] = jwt.decode(
             token,
             settings.jwt_secret_key.get_secret_value(),
             algorithms=[settings.jwt_algorithm],
@@ -235,7 +237,7 @@ def decode_access_token(token: str) -> dict:
         if payload.get("type") != "access":
             raise ValueError("Token type is not 'access'")
         return payload
-    except JWTError as exc:
+    except jwt.PyJWTError as exc:
         raise ValueError(f"Invalid token: {exc}") from exc
 ```
 
@@ -335,6 +337,8 @@ Do not write a different implementation. Copy it exactly.
 ---
 
 ## 2.9 Auth Service
+
+**Note:** `AuthService.__init__` requires `audit_repo: AuditRepository`. Wire it via `get_auth_service` in `api/dependencies.py`. Audit events (`SIGN_IN_REQUESTED`, `SIGN_IN_SUCCESS`, `SIGN_IN_FAILED`, `OTP_RATE_LIMITED`) must be emitted on every auth path — including failures — before the session commits.
 
 ```python
 # backend/app/auth/service.py
