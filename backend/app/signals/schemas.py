@@ -22,3 +22,7 @@ class SignalCreate(BaseModel):
     evidence: dict[str, object] | None = None
     tags: list[str] = Field(default_factory=list, max_length=20)
     recommended_action: str | None = Field(None, max_length=512)
+    # Discriminator for signals that can appear multiple times on the same
+    # (user, signal_type, asset) — e.g. breach name, platform name.
+    # Included in the dedup hash when present.
+    source_ref: str | None = Field(None, max_length=256)

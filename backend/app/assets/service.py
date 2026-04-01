@@ -63,3 +63,52 @@ class AssetService:
 
         logger.info("asset.email_registered", user_id=str(user_id))
         return asset
+
+    async def register_declared_asset(
+        self,
+        user_id: uuid.UUID,
+        entity_type: str,
+        value: str,
+    ) -> Asset:
+        """Register a user-declared non-email asset as verified.
+
+        Unlike register_verified_email, this does not require OTP. The user is
+        asserting ownership, so is_verified=True is set as the verification
+        event for scan-eligible assets.
+        """
+        existing = await self.asset_repo.get_by_value(
+            user_id=user_id,
+            entity_type=entity_type,
+            value=value,
+        )
+        if existing:
+            return existing
+
+        asset = Asset(
+            user_id=user_id,
+            entity_type=entity_type,
+            value=value,
+            is_primary=False,
+            is_verified=True,
+            verified_at=datetime.now(UTC),
+        )
+        self.session.add(asset)
+        try:
+            await self.session.commit()
+        except IntegrityError:
+            await self.session.rollback()
+            winner = await self.asset_repo.get_by_value(
+                user_id=user_id,
+                entity_type=entity_type,
+                value=value,
+            )
+            if winner is None:
+                raise
+            return winner
+
+        logger.info(
+            "asset.declared_registered",
+            user_id=str(user_id),
+            entity_type=entity_type,
+        )
+        return asset

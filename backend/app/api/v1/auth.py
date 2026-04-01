@@ -1,21 +1,26 @@
 # backend/app/api/v1/auth.py
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from backend.app.api.dependencies import get_asset_service, get_auth_service
 from backend.app.assets.service import AssetService
-from backend.app.auth.schemas import OTPRequest, OTPVerify, TokenResponse
+from backend.app.auth.schemas import OTPRequest, OTPVerify
 from backend.app.auth.service import AuthService
+from backend.app.core.config import settings
 from backend.app.core.exceptions import (
     AuthTokenExpiredException,
     AuthTokenInvalidException,
 )
+from backend.app.core.logging import get_logger
 from backend.app.core.rate_limit import get_real_ip, limiter
 from backend.app.email.service import EmailService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+logger = get_logger(__name__)
 
 # Module-level instance — EmailService is stateless after __init__
 _email_service = EmailService()
+
+_COOKIE_NAME = "zima_session"
 
 
 @router.post("/otp/request", status_code=202)
@@ -42,24 +47,31 @@ async def request_otp(
         privacy_policy_accepted=body.privacy_policy_accepted,
     )
     if raw_code is not None:
+        if not settings.is_production:
+            logger.info(
+                "auth.dev_otp",
+                email=str(body.email),
+                raw_code=raw_code,
+            )
         await _email_service.send_otp(str(body.email), raw_code)
 
     return {"message": "If that address is valid, a sign-in code is on its way."}
 
 
-@router.post("/otp/verify", response_model=TokenResponse)
+@router.post("/otp/verify", status_code=200)
 @limiter.limit("10/15minutes")
 async def verify_otp(
     request: Request,
+    response: Response,
     body: OTPVerify,
     auth_service: AuthService = Depends(get_auth_service),
     asset_service: AssetService = Depends(get_asset_service),
-) -> TokenResponse:
+) -> dict[str, str]:
     """
-    Verifies a submitted OTP code and returns a JWT access token.
+    Verifies a submitted OTP code and sets a session cookie.
 
     On success:
-    - Returns JWT access token
+    - Sets httpOnly session cookie containing the JWT
     - Registers the email as a verified, scannable asset
 
     Returns HTTP 401 for ALL failure modes with an identical response body.
@@ -82,4 +94,24 @@ async def verify_otp(
         email=str(body.email),
     )
 
-    return TokenResponse(access_token=token)
+    response.set_cookie(
+        key=_COOKIE_NAME,
+        value=token,
+        httponly=True,
+        secure=settings.is_production,
+        samesite="strict" if settings.is_production else "lax",
+        max_age=settings.jwt_access_token_expire_minutes * 60,
+        path="/",
+    )
+
+    return {"message": "Signed in."}
+
+
+@router.post("/logout", status_code=200)
+async def logout(response: Response) -> dict[str, str]:
+    """Clears the session cookie.
+
+    No auth required; safe to call when already signed out.
+    """
+    response.delete_cookie(key=_COOKIE_NAME, path="/")
+    return {"message": "Signed out."}

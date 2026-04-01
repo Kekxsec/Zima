@@ -11,9 +11,9 @@ from backend.app.providers.base.exceptions import ProviderError
 class HibpProvider(BaseProviderClient):
     name = "haveibeenpwned"
 
-    def __init__(self, api_key: str = "", timeout_seconds: int = 15):
+    def __init__(self, api_key: str = "", timeout_seconds: int = 15) -> None:
+        super().__init__(timeout_seconds=timeout_seconds)
         self._api_key = api_key
-        self._timeout_seconds = timeout_seconds
 
     async def search_breaches(
         self, *, email: str | None = None, phone_number: str | None = None
@@ -38,10 +38,14 @@ class HibpProvider(BaseProviderClient):
             if not target_value:
                 continue
             target = urllib.parse.quote(target_value)
-            url = f"https://haveibeenpwned.com/api/v3/breachedaccount/{target}"
+            url = (
+                f"https://haveibeenpwned.com/api/v3/breachedaccount/{target}"
+                "?truncateResponse=false"
+            )
             headers = {
                 "Accept": "application/vnd.haveibeenpwned.v3+json",
                 "hibp-api-key": api_key,
+                "User-Agent": "Zima-Security-Platform",
             }
             payload = await self._get(
                 url,
@@ -74,8 +78,8 @@ class HibpProvider(BaseProviderClient):
                         description=f"{_value} appears in breach dataset: {breach_name}",
                         entity_type=_entity_type,
                         entity_value=_value,
-                        confidence=0.9,
                         tags=["breach", "credential_exposure", "passive"],
+                        raw={"breach_name": breach_name},
                     )
                 )
 

@@ -1,7 +1,8 @@
 # backend/app/db/repositories/users.py
 import uuid
+from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.auth.models import User
@@ -41,3 +42,17 @@ class UserRepository:
             )
         )
         return result.scalar_one_or_none()
+
+    async def soft_delete(self, user_id: uuid.UUID) -> None:
+        """Marks a user as deleted and inactive. Prevents further sign-in."""
+        await self.session.execute(
+            update(User)
+            .where(User.id == user_id)
+            .values(deleted_at=datetime.now(UTC), is_active=False)
+        )
+
+    async def scrub_pii(self, user_id: uuid.UUID) -> None:
+        """Null out PII while keeping the row for billing and audit integrity."""
+        await self.session.execute(
+            update(User).where(User.id == user_id).values(tier="deleted")
+        )

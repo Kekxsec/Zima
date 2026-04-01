@@ -26,7 +26,7 @@ class Settings(BaseSettings):
 
     # JWT
     jwt_secret_key: SecretStr
-    jwt_algorithm: str = "HS256"
+    jwt_algorithm: Literal["HS256", "HS512"] = "HS256"
     jwt_access_token_expire_minutes: int = 60
 
     # CORS — loaded from environment, never hardcoded
@@ -66,6 +66,9 @@ class Settings(BaseSettings):
                     )
         return self
 
+    # Frontend
+    frontend_base_url: str = "http://localhost:3000"
+
     # Email
     resend_api_key: SecretStr | None = None
     email_from_address: str = "noreply@yourdomain.com"
@@ -77,8 +80,22 @@ class Settings(BaseSettings):
     stripe_price_shield_monthly: str | None = None
     stripe_price_pro_monthly: str | None = None
 
-    # Providers
+    # Providers — Wave 0
     hibp_api_key: SecretStr | None = None
+
+    # Providers — Wave 1 identity
+    dehashed_email: str | None = None
+    dehashed_api_key: SecretStr | None = None
+    leakcheck_api_key: SecretStr | None = None
+    breachdirectory_rapidapi_key: SecretStr | None = None
+    hudson_rock_api_key: SecretStr | None = None
+    emailrep_api_key: SecretStr | None = None
+    epieos_api_key: SecretStr | None = None
+
+    # Providers — phone intelligence
+    numverify_api_key: SecretStr | None = None
+    twilio_account_sid: SecretStr | None = None
+    twilio_auth_token: SecretStr | None = None
 
     # Tier
     default_tier: str = "core"

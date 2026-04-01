@@ -3,6 +3,7 @@ from collections.abc import AsyncGenerator
 
 import pytest
 import pytest_asyncio
+import redis as redis_sync
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -18,6 +19,21 @@ from backend.app.jobs.models import (
     Scan,  # noqa: F401 — registers Scan table in Base.metadata
 )
 from backend.app.main import app
+
+# ─── Rate Limit Reset ─────────────────────────────────────────────────────────
+
+
+@pytest.fixture(scope="session", autouse=True)
+def flush_rate_limit_keys() -> None:
+    """
+    Delete all slowapi rate-limit keys for the test client IP (127.0.0.1)
+    before the test session begins. Prevents counter bleed between runs.
+    """
+    r = redis_sync.from_url(settings.redis_url)
+    for key in r.scan_iter("*127.0.0.1*"):
+        r.delete(key)
+    r.close()
+
 
 # ─── Engine ───────────────────────────────────────────────────────────────────
 
@@ -116,17 +132,23 @@ async def auth_client(
 
 @pytest_asyncio.fixture
 async def paid_auth_client(
-    client: AsyncClient,
+    test_engine: AsyncEngine,
     db_session: AsyncSession,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
-    Authenticated client with a paid tier (shield).
-    Use for testing tier-gated functionality.
+    Authenticated client with a paid tier (pro).
+    Independent AsyncClient so it does not share auth headers with auth_client.
+    Use for testing tier-gated functionality and cross-user isolation.
     """
     from backend.app.auth.utils import create_access_token
     from tests.factories import UserFactory
 
-    user = UserFactory.build(tier="shield")
+    async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
+        yield db_session
+
+    app.dependency_overrides[get_db_session] = override_get_db
+
+    user = UserFactory.build(tier="pro")
     db_session.add(user)
     await db_session.flush()
     await (
@@ -134,10 +156,14 @@ async def paid_auth_client(
     )  # Must commit so get_active_by_id can find the user across sessions
 
     token = create_access_token(subject=str(user.id), tier=user.tier)
-    client.headers["Authorization"] = f"Bearer {token}"
-    client.test_user = user  # type: ignore[attr-defined]
-
-    yield client
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {token}"},
+    ) as c:
+        c.test_user = user  # type: ignore[attr-defined]
+        yield c
+    app.dependency_overrides.clear()
 
 
 # ─── Utility Fixtures ─────────────────────────────────────────────────────────
@@ -179,6 +205,9 @@ def mock_hibp_no_breaches(respx_mock):  # type: ignore[no-untyped-def]
         "backend.app.modules.identity.breach_monitor.service.settings"
     ) as mock_settings:
         mock_settings.hibp_api_key = SecretStr("test-key")
+        mock_settings.dehashed_email = None
+        mock_settings.dehashed_api_key = None
+        mock_settings.breachdirectory_rapidapi_key = None
         yield respx_mock
     return
 
@@ -239,6 +268,9 @@ def mock_hibp_with_breaches(respx_mock):  # type: ignore[no-untyped-def]
         "backend.app.modules.identity.breach_monitor.service.settings"
     ) as mock_settings:
         mock_settings.hibp_api_key = SecretStr("test-key")
+        mock_settings.dehashed_email = None
+        mock_settings.dehashed_api_key = None
+        mock_settings.breachdirectory_rapidapi_key = None
         yield respx_mock
     return
 

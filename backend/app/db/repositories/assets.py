@@ -1,7 +1,7 @@
 # backend/app/db/repositories/assets.py
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.assets.models import Asset
@@ -45,6 +45,10 @@ class AssetRepository:
             select(Asset).where(Asset.user_id == user_id)
         )
         return list(result.scalars().all())
+
+    async def delete_all_for_user(self, user_id: uuid.UUID) -> None:
+        """Hard-deletes all assets for a user. Used by GDPR erasure."""
+        await self.session.execute(delete(Asset).where(Asset.user_id == user_id))
 
     async def get_primary_email(self, user_id: uuid.UUID) -> Asset | None:
         result = await self.session.execute(

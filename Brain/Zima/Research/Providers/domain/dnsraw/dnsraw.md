@@ -1,0 +1,16 @@
+---
+title: "domain / dnsraw"
+aliases: ["dnsraw", "domain dnsraw"]
+tags: [zima, research, providers, domain, dnsraw]
+type: provider_folder
+provider: dnsraw
+provider_category: domain
+status: scaffolded
+obsidianUIMode: preview
+---
+[[../domain|domain]]
+
+# domain / dnsraw
+
+- prompt_file: `prompt.md`
+- output_file: `output.md`

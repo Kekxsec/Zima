@@ -1,0 +1,232 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                   QUICK REFERENCE: Security Fixes                           ║
+║                    Wave 1 Identity Modules Review                           ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+EXECUTIVE SUMMARY
+─────────────────
+3 CRITICAL issues found. Must be fixed before production.
+Estimated remediation: 8 hours. No architectural changes needed.
+
+╔═══════════════════════════════════════════════════════════════════════════╗
+║ CRITICAL ISSUE #1: Plaintext Passwords in Database                       ║
+╠═══════════════════════════════════════════════════════════════════════════╣
+║ Problem:  DeHashed API response includes plaintext passwords in entries   ║
+║           Provider returns full entries in raw dict                       ║
+║           Signal evidence dict persisted to PostgreSQL                    ║
+║           Attackers with DB access get credentials                        ║
+║                                                                           ║
+║ Files:    • backend/app/providers/breach/dehashed/client.py:65           ║
+║           • backend/app/modules/identity/breach_monitor/service.py:122   ║
+║                                                                           ║
+║ Fix:      1. Remove entries array from provider raw dict                 ║
+║           2. Update modules to not store raw_finding with entries        ║
+║           3. Migration: Clear plaintext from existing signals             ║
+║                                                                           ║
+║ Time:     1.5 hours                                                      ║
+║ Docs:     REMEDIATION_GUIDE_WAVE1.md - Fix 1                             ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+╔═══════════════════════════════════════════════════════════════════════════╗
+║ CRITICAL ISSUE #2: Subprocess Injection & Input Validation                ║
+╠═══════════════════════════════════════════════════════════════════════════╣
+║ Problem:  Holehe & Maigret providers accept user input without validation ║
+║           No format checking, no length limits                            ║
+║           Could trigger DoS (memory exhaustion, CPU)                      ║
+║           Could leak info via tool error messages                         ║
+║                                                                           ║
+║ Files:    • backend/app/providers/tools/holehe/client.py:75              ║
+║           • backend/app/providers/tools/maigret/client.py:80-88          ║
+║           • backend/app/modules/identity/username_exposure/service.py    ║
+║                                                                           ║
+║ Fix:      1. Add email format validation (regex + length check)          ║
+║           2. Add username format validation (regex + length min/max)      ║
+║           3. Raise ProviderError for invalid inputs                      ║
+║                                                                           ║
+║ Time:     1 hour                                                         ║
+║ Docs:     REMEDIATION_GUIDE_WAVE1.md - Fix 2                             ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+╔═══════════════════════════════════════════════════════════════════════════╗
+║ CRITICAL ISSUE #3: Uncontrolled API Costs                                 ║
+╠═══════════════════════════════════════════════════════════════════════════╣
+║ Problem:  No rate limiting on external API calls                         ║
+║           No quota per user/tier                                         ║
+║           No cost attribution                                             ║
+║           DeHashed @ $0.10/query, 1000 emails = $700 bill                ║
+║           Attacker can racks up massive costs                            ║
+║                                                                           ║
+║ Providers: HIBP, DeHashed, BreachDirectory, Hudson Rock,                 ║
+║            LeakCheck, Epieos, EmailRep                                   ║
+║                                                                           ║
+║ Fix:      1. Create ApiUsageLog model & repository                       ║
+║           2. Add quota checks before provider calls                       ║
+║           3. Log all API calls with cost                                  ║
+║           4. Integrate into scan orchestration                            ║
+║                                                                           ║
+║ Time:     3 hours                                                        ║
+║ Docs:     REMEDIATION_GUIDE_WAVE1.md - Fix 3                             ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+╔═══════════════════════════════════════════════════════════════════════════╗
+║ MEDIUM ISSUE #1: API Key Exposure                                        ║
+╠═══════════════════════════════════════════════════════════════════════════╣
+║ Problem:  API keys stored as plain str, not SecretStr                    ║
+║           Could be leaked in exception tracebacks                        ║
+║           Visible in thread inspection/debugger                          ║
+║                                                                           ║
+║ Files:    6 provider files (epieos, emailrep, dehashed, leakcheck,       ║
+║           breachdirectory, hudson_rock)                                  ║
+║                                                                           ║
+║ Fix:      Wrap all API keys in SecretStr()                               ║
+║           Use .get_secret_value() only when needed                       ║
+║                                                                           ║
+║ Time:     0.5 hours                                                      ║
+║ Docs:     REMEDIATION_GUIDE_WAVE1.md - Fix 4                             ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+╔═══════════════════════════════════════════════════════════════════════════╗
+║ MEDIUM ISSUE #2: PII in Epieos Evidence                                   ║
+╠═══════════════════════════════════════════════════════════════════════════╣
+║ Problem:  Real names, activity timestamps, YouTube links stored in DB    ║
+║           Unnecessary PII retention (GDPR scope creep)                   ║
+║           Identity correlation risk if DB breached                       ║
+║                                                                           ║
+║ Files:    • backend/app/providers/social/epieos/client.py                ║
+║           • backend/app/modules/identity/alias_correlation/service.py    ║
+║                                                                           ║
+║ Fix:      Replace PII with boolean flags:                                ║
+║           • "name" → removed (PII)                                        ║
+║           • "lastActivity" → removed (behavioral data)                    ║
+║           • "youtubeChannel" → "has_youtube_channel" (boolean)           ║
+║           Same pattern for all PII fields                                 ║
+║                                                                           ║
+║ Time:     0.5 hours                                                      ║
+║ Docs:     REMEDIATION_GUIDE_WAVE1.md - Fix 5                             ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+╔═══════════════════════════════════════════════════════════════════════════╗
+║ LOW ISSUE: Username Validation                                           ║
+╠═══════════════════════════════════════════════════════════════════════════╣
+║ Problem:  Only checks length >= 3, no max or character validation        ║
+║           Wastes API requests on invalid usernames                       ║
+║                                                                           ║
+║ Files:    backend/app/providers/social/accounts/client.py:45             ║
+║                                                                           ║
+║ Fix:      Add max length check (32 chars typical)                        ║
+║           Add character pattern validation [a-zA-Z0-9._-]                ║
+║                                                                           ║
+║ Time:     0.25 hours                                                     ║
+║ Docs:     REMEDIATION_GUIDE_WAVE1.md - Fix 6                             ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+DEPLOYMENT CHECKLIST
+────────────────────
+
+Before production deployment:
+
+  [ ] All 8 issues reviewed and understood
+  [ ] Code fixes applied and tested locally
+  [ ] New database models created (ApiUsageLog)
+  [ ] New repositories created (ApiUsageRepository)
+  [ ] Migrations created and tested
+  [ ] Security tests written and passing
+  [ ] Staging deployment successful
+  [ ] API quota enforcement tested
+  [ ] Input validation tested with boundary cases
+  [ ] Existing database cleaned (plaintext passwords removed)
+  [ ] Team trained on new quota system
+  [ ] Monitoring/alerts configured for quota exceeding
+  [ ] API cost tracking dashboard ready
+  [ ] Production database backed up
+  [ ] Rollback plan documented
+
+TESTING CHECKLIST
+─────────────────
+
+Security tests to run:
+
+  [ ] No plaintext passwords in DeHashed findings
+  [ ] Invalid emails rejected by holehe
+  [ ] Invalid usernames rejected by maigret
+  [ ] API quotas enforced (quota exceeded error)
+  [ ] API calls logged with cost tracking
+  [ ] SecretStr not leaked in exceptions
+  [ ] PII removed from Epieos evidence
+  [ ] Integration tests for full scan pipeline
+  [ ] Load test with 1000+ scans
+
+
+RISK ASSESSMENT
+───────────────
+
+If fixed:        ✓ Production-ready
+If not fixed:    ✗ Critical security & financial risks
+
+
+ESTIMATED TIMELINE
+──────────────────
+
+Day 1:  Review findings & plan (1 hour)
+        Implement C1, C2, M1 in parallel (2 hours)
+        = 3 hours total
+
+Day 2:  Implement C3 (API quotas) (3 hours)
+        Implement M2, L1 (1 hour)
+        = 4 hours total
+
+Day 3:  Testing & validation (2 hours)
+        Staging deployment (1 hour)
+        = 3 hours total
+
+Total: 8-10 hours across 2-3 days
+
+
+KEY METRICS TO MONITOR
+──────────────────────
+
+Post-deployment:
+
+  • API quota enforcement: % of users hitting limits
+  • API costs: Total spend per day/week/month
+  • Cost per scan: Breakdown by provider
+  • Input validation: # of rejected inputs per day
+  • Error rates: Any new exceptions from validation
+
+
+QUESTIONS?
+──────────
+
+Full analysis:    SECURITY_REVIEW_WAVE1_IDENTITY.md
+Step-by-step:     REMEDIATION_GUIDE_WAVE1.md
+Summary:          SECURITY_FINDINGS_SUMMARY.txt
+
+All files in:     /Users/max/Zima/
+
+
+FINAL NOTES
+───────────
+
+✓ Architecture is sound - issues are implementation details
+✓ No major refactoring needed
+✓ Fixes are self-contained and can be tested independently
+✓ Database schema changes are minimal
+✓ Backward compatible (with migration)
+✓ Can be deployed to production after fixes applied
+
+
+DO NOT SKIP THESE FIXES
+───────────────────────
+
+These are not "nice to have" improvements. They are critical security
+vulnerabilities that expose:
+  1. User credentials to database breach
+  2. Backend to resource exhaustion DoS
+  3. Business to unexpected costs & quota issues
+
+Fix now, deploy later.
+
+═════════════════════════════════════════════════════════════════════════════
+
+Last updated: 2026-03-27
+Review status: COMPLETE - DO NOT DEPLOY WITHOUT FIXES

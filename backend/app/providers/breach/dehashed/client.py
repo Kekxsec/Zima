@@ -21,10 +21,10 @@ class DehashedProvider(BaseProviderClient):
 
     def __init__(
         self, api_email: str = "", api_key: str = "", timeout_seconds: int = 15
-    ):
+    ) -> None:
+        super().__init__(timeout_seconds=timeout_seconds)
         self._api_email = api_email
         self._api_key = api_key
-        self._timeout_seconds = timeout_seconds
 
     async def search_breaches(
         self, *, domain: str | None = None, email: str | None = None
@@ -37,7 +37,7 @@ class DehashedProvider(BaseProviderClient):
             )
         creds = base64.b64encode(f"{api_email}:{api_key}".encode()).decode()
         headers = {"Accept": "application/json", "Authorization": f"Basic {creds}"}
-        findings, evidence = [], []
+        findings: list[dict[str, Any]] = []
         _inputs: list[tuple[str, str]] = []
         if domain is not None:
             _inputs.append(("domain", domain))
@@ -49,10 +49,17 @@ class DehashedProvider(BaseProviderClient):
             val = _value.strip()
             query = f'email:"{val}"' if _entity_type == "email" else f'email:"@{val}"'
             url = f"{self.base_url}?query={urllib.parse.quote(query)}&size=5"
-            data = self._fetch(url, headers)
+            data = await self._fetch(url, headers)
             total = data.get("total", 0) if isinstance(data, dict) else 0
             entries = data.get("entries", []) if isinstance(data, dict) else []
             if total and total > 0:
+                # Strip sensitive fields before storing — never persist raw passwords
+                sensitive_fields = {"password", "hashed_password"}
+                scrubbed_entries = [
+                    {k: v for k, v in e.items() if k not in sensitive_fields}
+                    for e in entries
+                    if isinstance(e, dict)
+                ]
                 findings.append(
                     dict(
                         provider=self.name,
@@ -61,21 +68,28 @@ class DehashedProvider(BaseProviderClient):
                         description=f"{val} found in {total} DeHashed breach record(s)",
                         entity_type=_entity_type,
                         entity_value=val,
-                        confidence=0.85,
                         tags=["dehashed", "leak", "breach", "passive"],
-                    )
-                )
-                evidence.append(
-                    dict(
-                        source=self.name,
-                        description=f"DeHashed records for {val}",
-                        raw={"total": total, "sample_count": len(entries)},
-                        confidence=0.85,
+                        raw={
+                            "total": total,
+                            "sample_count": len(entries),
+                            "entries": scrubbed_entries,
+                            # Presence flags for modules to use — actual values scrubbed above
+                            "has_plaintext": any(
+                                bool(e.get("password"))
+                                for e in entries
+                                if isinstance(e, dict)
+                            ),
+                            "has_hash": any(
+                                bool(e.get("hashed_password"))
+                                for e in entries
+                                if isinstance(e, dict)
+                            ),
+                        },
                     )
                 )
         return findings
 
-    async def _fetch(self, url: str, headers: dict) -> dict:
+    async def _fetch(self, url: str, headers: dict[str, str]) -> dict[str, Any]:
         return await self._get(
             url, label="Dehashed", headers=headers, timeout=self._timeout_seconds
         )

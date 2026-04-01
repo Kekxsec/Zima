@@ -55,8 +55,49 @@ class EmailService:
         try:
             # resend.Emails.send() is synchronous — run in a thread to avoid
             # blocking the event loop during the outbound HTTP request.
-            await asyncio.to_thread(resend.Emails.send, params)
+            await asyncio.to_thread(resend.Emails.send, params)  # type: ignore[arg-type]
             logger.info("email.otp_sent")
         except Exception as exc:
             # Log but do not raise — token is already stored, user can request another
             logger.error("email.send_failed", error=str(exc))
+
+    async def send_breach_alert(
+        self,
+        to_email: str,
+        monitored_email: str,
+        breach_title: str,
+        breach_date: str,
+        data_classes: list[str],
+    ) -> None:
+        """Sends a breach alert notification email. Never raises."""
+        if not self._configured:
+            logger.info(
+                "email.breach_alert_dev_console",
+                to_email=to_email,
+                breach_title=breach_title,
+            )
+            return
+
+        import resend
+
+        from backend.app.email.templates.breach_alert import (
+            breach_alert_html,
+            breach_alert_text,
+        )
+
+        params = {
+            "from": f"{settings.email_from_name} <{settings.email_from_address}>",
+            "to": [to_email],
+            "subject": f"Breach detected: {breach_title}",
+            "html": breach_alert_html(
+                monitored_email, breach_title, breach_date, data_classes
+            ),
+            "text": breach_alert_text(
+                monitored_email, breach_title, breach_date, data_classes
+            ),
+        }
+        try:
+            await asyncio.to_thread(resend.Emails.send, params)  # type: ignore[arg-type]
+            logger.info("email.breach_alert_sent", breach=breach_title)
+        except Exception as exc:
+            logger.error("email.breach_alert_failed", error=str(exc))

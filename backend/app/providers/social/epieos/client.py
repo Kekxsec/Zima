@@ -20,9 +20,9 @@ class EpieosProvider(BaseProviderClient):
     name = "epieos"
     base_url = "https://epieos.com/api"
 
-    def __init__(self, api_key: str = "", timeout_seconds: int = 15):
+    def __init__(self, api_key: str = "", timeout_seconds: int = 15) -> None:
+        super().__init__(timeout_seconds=timeout_seconds)
         self._api_key = api_key
-        self._timeout_seconds = timeout_seconds
 
     async def validate_email(self, email: str) -> list[dict[str, Any]]:
         api_key = str(self._api_key).strip()
@@ -32,36 +32,24 @@ class EpieosProvider(BaseProviderClient):
                 retryable=False,
             )
 
-        findings: list = []
-        evidence: list = []
+        findings: list[dict[str, Any]] = []
 
         email = email.strip()
         params = urllib.parse.urlencode({"email": email, "format": "json"})
         url = f"{self.base_url}/email?{params}"
 
-        resp = await self._get(
+        # _get() handles: 404 → returns {}, 429 → raises ProviderRateLimitError,
+        # 401/403 → raises ProviderAuthError, 5xx → raises ProviderUpstreamError.
+        # 402 (quota exceeded) returns an error JSON body without google/apple keys
+        # so no findings will be emitted — acceptable behaviour.
+        data = await self._get(
             url,
             headers={"EPIEOS-TOKEN": api_key},
             timeout=self._timeout_seconds,
         )
 
-        if resp.status_code == 402:
-            raise ProviderError(
-                message="Epieos payment required — quota exceeded or subscription inactive",
-                retryable=False,
-            )
-        if resp.status_code == 429:
-            raise ProviderError(
-                message="Epieos rate limited",
-                retryable=True,
-            )
-
-        self._check_status_errors(resp, "Epieos")
-
-        if resp.status_code == 404 or not resp.content.strip():
+        if not data:
             return findings
-
-        data = self._parse_json(resp, "Epieos")
 
         google = data.get("google") or {}
         apple = data.get("apple") or {}
@@ -74,7 +62,6 @@ class EpieosProvider(BaseProviderClient):
             "passive",
         ] + [str(s) for s in services if isinstance(s, str)]
 
-        # Google account finding
         if google and google.get("id"):
             name = str(google.get("name", "")).strip()
             last_activity = str(google.get("lastActivity", "")).strip()
@@ -99,15 +86,7 @@ class EpieosProvider(BaseProviderClient):
                     description=" ".join(desc_parts),
                     entity_type="email",
                     entity_value=email,
-                    confidence=0.85,
                     tags=service_tags,
-                )
-            )
-
-            evidence.append(
-                dict(
-                    source=self.name,
-                    description=f"Epieos Google account data for {email}",
                     raw={
                         "google_id": google.get("id"),
                         "name": google.get("name"),
@@ -118,11 +97,9 @@ class EpieosProvider(BaseProviderClient):
                         "youtubeChannel": google.get("youtubeChannel"),
                         "hangoutsLastActivity": google.get("hangoutsLastActivity"),
                     },
-                    confidence=0.85,
                 )
             )
 
-        # Apple ID finding
         if apple and apple.get("id"):
             findings.append(
                 dict(
@@ -135,20 +112,11 @@ class EpieosProvider(BaseProviderClient):
                     ),
                     entity_type="email",
                     entity_value=email,
-                    confidence=0.75,
                     tags=service_tags,
-                )
-            )
-
-            evidence.append(
-                dict(
-                    source=self.name,
-                    description=f"Epieos Apple ID data for {email}",
                     raw={
                         "apple_id": apple.get("id"),
                         "email_verified": apple.get("email_verified"),
                     },
-                    confidence=0.75,
                 )
             )
 

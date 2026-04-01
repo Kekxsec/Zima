@@ -36,9 +36,9 @@ class BreachDirectoryProvider(BaseProviderClient):
     name = "breachdirectory"
     base_url = f"https://{_RAPIDAPI_HOST}"
 
-    def __init__(self, api_key: str = "", timeout_seconds: int = 15):
+    def __init__(self, api_key: str = "", timeout_seconds: int = 15) -> None:
+        super().__init__(timeout_seconds=timeout_seconds)
         self._api_key = api_key
-        self._timeout_seconds = timeout_seconds
 
     async def search_breaches(
         self, *, email: str | None = None, username: str | None = None
@@ -54,8 +54,7 @@ class BreachDirectoryProvider(BaseProviderClient):
             "X-RapidAPI-Key": api_key,
             "X-RapidAPI-Host": _RAPIDAPI_HOST,
         }
-        findings: list = []
-        evidence: list = []
+        findings: list[dict[str, Any]] = []
 
         _inputs: list[tuple[str, str]] = []
         if email is not None:
@@ -82,7 +81,7 @@ class BreachDirectoryProvider(BaseProviderClient):
             if not payload or not isinstance(payload, dict):
                 continue
 
-            found_count = int(payload.get("found", 0))
+            found_count = int(payload.get("found") or 0)
             results = payload.get("result", [])
             if not found_count or not results:
                 continue
@@ -93,7 +92,6 @@ class BreachDirectoryProvider(BaseProviderClient):
                     retryable=False,
                 )
 
-            any_plaintext = False
             for record in results:
                 if not isinstance(record, dict):
                     continue
@@ -107,9 +105,6 @@ class BreachDirectoryProvider(BaseProviderClient):
 
                 is_hash = _looks_like_hash(password_val)
                 has_plaintext = bool(password_val) and not is_hash
-
-                if has_plaintext:
-                    any_plaintext = True
 
                 if password_val:
                     cred_detail = (
@@ -134,23 +129,14 @@ class BreachDirectoryProvider(BaseProviderClient):
                         description=description,
                         entity_type=_entity_type,
                         entity_value=_value,
-                        confidence=0.80,
                         tags=["breach", "password_exposure", "breachdirectory"],
+                        raw={
+                            "sources": sources,
+                            "has_password": bool(password_val),
+                            "has_plaintext": has_plaintext,
+                            "is_hash": is_hash,
+                        },
                     )
                 )
-
-            evidence.append(
-                dict(
-                    source=self.name,
-                    description=f"BreachDirectory results for {val}",
-                    raw={
-                        "target": val,
-                        "found_count": found_count,
-                        "result_count": len(results),
-                        "any_plaintext_password": any_plaintext,
-                    },
-                    confidence=0.80,
-                )
-            )
 
         return findings

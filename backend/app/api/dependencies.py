@@ -1,8 +1,7 @@
 # backend/app/api/dependencies.py
 import uuid
 
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.assets.service import AssetService
@@ -22,18 +21,27 @@ __all__ = [
     "get_db_session",
 ]
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/otp/verify")
+_COOKIE_NAME = "zima_session"
 
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    request: Request,
     db: AsyncSession = Depends(get_db_session),
 ) -> User:
+    # Cookie-based auth for browser clients; Bearer header fallback for API/Swagger
+    token = request.cookies.get(_COOKIE_NAME)
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials.",
-        headers={"WWW-Authenticate": "Bearer"},
     )
+    if not token:
+        raise credentials_exception
+
     try:
         payload = decode_access_token(token)
     except ValueError:

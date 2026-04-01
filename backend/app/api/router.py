@@ -3,8 +3,10 @@ from fastapi import APIRouter
 
 from backend.app.api.v1 import (
     account,
+    assets,
     auth,
     billing,
+    email_accounts,
     findings,
     health,
     legal,
@@ -24,6 +26,7 @@ api_router.include_router(webhooks_router, prefix="/api/v1")
 
 # Authenticated API endpoints
 api_router.include_router(auth.router, prefix="/api/v1")
+api_router.include_router(assets.router, prefix="/api/v1")
 api_router.include_router(scans.router, prefix="/api/v1")
 api_router.include_router(findings.router, prefix="/api/v1")
 api_router.include_router(signals.router, prefix="/api/v1")
@@ -31,3 +34,4 @@ api_router.include_router(scores.router, prefix="/api/v1")
 api_router.include_router(account.router, prefix="/api/v1")
 api_router.include_router(billing.router, prefix="/api/v1")
 api_router.include_router(legal.router, prefix="/api/v1")
+api_router.include_router(email_accounts.router, prefix="/api/v1")

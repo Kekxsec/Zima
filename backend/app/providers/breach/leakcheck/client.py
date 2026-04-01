@@ -19,16 +19,15 @@ class LeakCheckProvider(BaseProviderClient):
     public_base_url = "https://leakcheck.io/api/public"
     v2_base_url = "https://leakcheck.io/api/v2/query"
 
-    def __init__(self, api_key: str = "", timeout_seconds: int = 15):
+    def __init__(self, api_key: str = "", timeout_seconds: int = 15) -> None:
+        super().__init__(timeout_seconds=timeout_seconds)
         self._api_key = api_key
-        self._timeout_seconds = timeout_seconds
 
     async def check_leaks(
         self, *, email: str | None = None, username: str | None = None
     ) -> list[dict[str, Any]]:
         api_key = str(self._api_key).strip()
-        findings: list = []
-        evidence: list = []
+        findings: list[dict[str, Any]] = []
 
         _inputs: list[tuple[str, str]] = []
         if email is not None:
@@ -47,7 +46,10 @@ class LeakCheckProvider(BaseProviderClient):
 
             if api_key:
                 url = f"{self.v2_base_url}/{encoded}"
-                headers = {"X-API-Key": api_key, "Accept": "application/json"}
+                headers: dict[str, str] = {
+                    "X-API-Key": api_key,
+                    "Accept": "application/json",
+                }
             else:
                 url = f"{self.public_base_url}?check={encoded}"
                 headers = {"Accept": "application/json"}
@@ -62,7 +64,7 @@ class LeakCheckProvider(BaseProviderClient):
             if not success:
                 continue
 
-            found_count = int(payload.get("found", 0))
+            found_count = int(payload.get("found") or 0)
             sources = payload.get("sources", [])
 
             if not found_count or not sources:
@@ -94,6 +96,10 @@ class LeakCheckProvider(BaseProviderClient):
                     f"Exposed columns: {columns_str}."
                 )
 
+                has_password = isinstance(columns, list) and any(
+                    c.lower() in {"password", "hash", "password_hash"} for c in columns
+                )
+
                 findings.append(
                     dict(
                         provider=self.name,
@@ -102,23 +108,15 @@ class LeakCheckProvider(BaseProviderClient):
                         description=description,
                         entity_type=_entity_type,
                         entity_value=_value,
-                        confidence=0.80,
                         tags=["breach", "leak", "leakcheck"],
+                        raw={
+                            "breach_name": breach_name,
+                            "breach_date": breach_date,
+                            "columns": columns,
+                            "has_password": has_password,
+                            "entries": entries,
+                        },
                     )
                 )
-
-            evidence.append(
-                dict(
-                    source=self.name,
-                    description=f"LeakCheck results for {val}",
-                    raw={
-                        "target": val,
-                        "breach_count": found_count,
-                        "source_count": len(sources),
-                        "used_api_key": bool(api_key),
-                    },
-                    confidence=0.80,
-                )
-            )
 
         return findings

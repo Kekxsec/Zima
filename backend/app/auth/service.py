@@ -222,3 +222,102 @@ class AuthService:
 
         logger.info("auth.sign_in_success", user_id=str(user.id))
         return user, jwt_token
+
+    async def request_asset_email_otp(
+        self,
+        email: str,
+        requesting_ip: str,
+    ) -> str | None:
+        """
+        Generates an OTP for verifying an additional email asset.
+
+        Unlike request_otp, this does NOT create or look up a user — it only
+        stores a token keyed by email. The authenticated user is identified by
+        the session cookie, not by this email.
+
+        Returns the raw code on success, or None if rate limited.
+        """
+        email = email.lower().strip()
+        active_count = await self.token_repo.count_active_for_email(email)
+        if active_count >= MAX_ACTIVE_TOKENS_PER_EMAIL:
+            logger.warning("auth.asset_otp_rate_limit", ip=requesting_ip)
+            return None
+        raw_code = _generate_code()
+        token = AuthToken(
+            email=email,
+            code_hash=_hash_code(raw_code),
+            expires_at=datetime.now(UTC) + timedelta(minutes=OTP_EXPIRY_MINUTES),
+            requested_from_ip=requesting_ip,
+        )
+        self.session.add(token)
+        await self.session.commit()
+        logger.info("auth.asset_otp_issued", email_domain=email.split("@")[-1])
+        return raw_code
+
+    async def verify_asset_email_otp(self, email: str, code: str) -> bool:
+        """
+        Verifies an OTP for an additional email asset.
+
+        Returns True on success (token consumed), False on any failure.
+        Does not create a session — the caller registers the asset.
+        """
+        email = email.lower().strip()
+        token = await self.token_repo.get_valid_token(email, _hash_code(code))
+        if not token:
+            logger.warning(
+                "auth.asset_otp_verify_failed",
+                email_domain=email.split("@")[-1],
+            )
+            return False
+        token.used_at = datetime.now(UTC)
+        await self.session.commit()
+        logger.info("auth.asset_otp_verified", email_domain=email.split("@")[-1])
+        return True
+
+    async def request_asset_phone_otp(
+        self,
+        phone: str,
+        requesting_ip: str,
+    ) -> str | None:
+        """
+        Generates an OTP for verifying a phone number asset.
+
+        Reuses the auth_tokens table with the phone number as the key.
+        In production this code would be delivered via SMS; for now the
+        caller is responsible for delivering it (console-print in dev).
+
+        Returns the raw code on success, or None if rate limited.
+        """
+        phone = phone.strip()
+        active_count = await self.token_repo.count_active_for_email(phone)
+        if active_count >= MAX_ACTIVE_TOKENS_PER_EMAIL:
+            logger.warning("auth.phone_otp_rate_limit", ip=requesting_ip)
+            return None
+        raw_code = _generate_code()
+        token = AuthToken(
+            email=phone,
+            code_hash=_hash_code(raw_code),
+            expires_at=datetime.now(UTC) + timedelta(minutes=OTP_EXPIRY_MINUTES),
+            requested_from_ip=requesting_ip,
+        )
+        self.session.add(token)
+        await self.session.commit()
+        logger.info("auth.phone_otp_issued")
+        return raw_code
+
+    async def verify_asset_phone_otp(self, phone: str, code: str) -> bool:
+        """
+        Verifies an OTP for a phone number asset.
+
+        Returns True on success (token consumed), False on any failure.
+        Does not create a session — the caller registers the asset.
+        """
+        phone = phone.strip()
+        token = await self.token_repo.get_valid_token(phone, _hash_code(code))
+        if not token:
+            logger.warning("auth.phone_otp_verify_failed")
+            return False
+        token.used_at = datetime.now(UTC)
+        await self.session.commit()
+        logger.info("auth.phone_otp_verified")
+        return True

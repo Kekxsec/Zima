@@ -19,9 +19,9 @@ class HudsonRockProvider(BaseProviderClient):
     name = "hudson_rock"
     base_url = "https://cavalier.hudsonrock.com/api/json/v2"
 
-    def __init__(self, api_key: str = "", timeout_seconds: int = 15):
+    def __init__(self, api_key: str = "", timeout_seconds: int = 15) -> None:
+        super().__init__(timeout_seconds=timeout_seconds)
         self._api_key = api_key
-        self._timeout_seconds = timeout_seconds
 
     async def get_compromised_data(
         self, *, domain: str | None = None, email: str | None = None
@@ -34,8 +34,7 @@ class HudsonRockProvider(BaseProviderClient):
             )
 
         headers = {"api-key": api_key, "Accept": "application/json"}
-        findings: list = []
-        evidence: list = []
+        findings: list[dict[str, Any]] = []
 
         _inputs: list[tuple[str, str]] = []
         if domain is not None:
@@ -51,25 +50,19 @@ class HudsonRockProvider(BaseProviderClient):
                 continue
 
             if _entity_type == "email":
-                await self._process_email(
-                    val, _entity_type, headers, findings, evidence
-                )
+                await self._process_email(val, _entity_type, headers, findings)
             else:
-                await self._process_domain(
-                    val, _entity_type, headers, findings, evidence
-                )
+                await self._process_domain(val, _entity_type, headers, findings)
 
         return findings
 
     async def _process_email(
         self,
         email: str,
-        _entity_type: str,
-        headers: dict,
-        findings: list,
-        evidence: list,
+        entity_type: str,
+        headers: dict[str, str],
+        findings: list[dict[str, Any]],
     ) -> None:
-        _value = email
         url = f"{self.base_url}/search-by-login?login={urllib.parse.quote(email)}"
         payload = await self._get(
             url, label="HudsonRock", headers=headers, timeout=self._timeout_seconds
@@ -81,7 +74,7 @@ class HudsonRockProvider(BaseProviderClient):
         if not stealers:
             return
 
-        dates = []
+        dates: list[str] = []
         for stealer in stealers:
             if not isinstance(stealer, dict):
                 continue
@@ -90,10 +83,9 @@ class HudsonRockProvider(BaseProviderClient):
             if date_uploaded and date_uploaded != "unknown":
                 dates.append(date_uploaded)
 
-            str(stealer.get("computer_name", "unknown"))
+            computer_name = str(stealer.get("computer_name", "unknown"))
             operating_system = str(stealer.get("operating_system", "unknown"))
             malware_path = str(stealer.get("malware_path", ""))
-            str(stealer.get("ip", "unknown"))
             credentials = stealer.get("credentials", [])
             cred_count = len(credentials) if isinstance(credentials, list) else 0
 
@@ -113,36 +105,26 @@ class HudsonRockProvider(BaseProviderClient):
                     category="stealer_log_exposure",
                     title=f"Stealer log hit: {email}",
                     description=description,
-                    entity_type=_entity_type,
-                    entity_value=_value,
-                    confidence=0.85,
+                    entity_type=entity_type,
+                    entity_value=email,
                     tags=["stealer_log", "infostealer", "credential_theft"],
+                    raw={
+                        "date_uploaded": date_uploaded,
+                        "computer_name": computer_name,
+                        "operating_system": operating_system,
+                        "malware_name": malware_name,
+                        "credential_count": cred_count,
+                    },
                 )
             )
-
-        date_range = f"{min(dates)} to {max(dates)}" if dates else "unknown"
-        evidence.append(
-            dict(
-                source=self.name,
-                description=f"Hudson Rock stealer log results for {email}",
-                raw={
-                    "target": email,
-                    "stealer_count": len(stealers),
-                    "date_range": date_range,
-                },
-                confidence=0.85,
-            )
-        )
 
     async def _process_domain(
         self,
         domain: str,
-        _entity_type: str,
-        headers: dict,
-        findings: list,
-        evidence: list,
+        entity_type: str,
+        headers: dict[str, str],
+        findings: list[dict[str, Any]],
     ) -> None:
-        _value = domain
         url = f"{self.base_url}/search-by-domain?domain={urllib.parse.quote(domain)}"
         payload = await self._get(
             url, label="HudsonRock", headers=headers, timeout=self._timeout_seconds
@@ -159,7 +141,7 @@ class HudsonRockProvider(BaseProviderClient):
                 continue
 
             date_uploaded = str(stealer.get("date_uploaded", "unknown"))
-            str(stealer.get("computer_name", "unknown"))
+            computer_name = str(stealer.get("computer_name", "unknown"))
             operating_system = str(stealer.get("operating_system", "unknown"))
             credentials = stealer.get("credentials", [])
             cred_count = len(credentials) if isinstance(credentials, list) else 0
@@ -177,21 +159,15 @@ class HudsonRockProvider(BaseProviderClient):
                     category="stealer_log_exposure",
                     title=f"Stealer log hit: {domain}",
                     description=description,
-                    entity_type=_entity_type,
-                    entity_value=_value,
-                    confidence=0.85,
+                    entity_type=entity_type,
+                    entity_value=domain,
                     tags=["stealer_log", "infostealer", "credential_theft"],
+                    raw={
+                        "date_uploaded": date_uploaded,
+                        "computer_name": computer_name,
+                        "operating_system": operating_system,
+                        "stealer_count": len(stealers),
+                        "credential_count": cred_count,
+                    },
                 )
             )
-
-        evidence.append(
-            dict(
-                source=self.name,
-                description=f"Hudson Rock domain stealer log results for {domain}",
-                raw={
-                    "target": domain,
-                    "stealer_count": len(stealers),
-                },
-                confidence=0.85,
-            )
-        )

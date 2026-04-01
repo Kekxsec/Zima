@@ -1,7 +1,8 @@
 # backend/app/signals/models.py
 import uuid
+from datetime import datetime
 
-from sqlalchemy import JSON, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -39,12 +40,15 @@ class Signal(Base, TimestampMixin):
 
     summary: Mapped[str] = mapped_column(String(512), nullable=False)
     details: Mapped[str | None] = mapped_column(Text, nullable=True)
-    evidence: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    tags: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    evidence: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    tags: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     recommended_action: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     status: Mapped[str] = mapped_column(
         String(20), default="open", nullable=False, index=True
+    )
+    notified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
     __table_args__ = (

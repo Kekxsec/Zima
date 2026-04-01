@@ -71,4 +71,4 @@ class AuthTokenRepository:
         result = await self.session.execute(
             delete(AuthToken).where(AuthToken.expires_at < cutoff)
         )
-        return result.rowcount  # type: ignore[return-value]
+        return int(result.rowcount)  # type: ignore[attr-defined]

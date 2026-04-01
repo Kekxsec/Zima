@@ -27,8 +27,8 @@ class Finding(Base, TimestampMixin):
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     explanation: Mapped[str] = mapped_column(Text, nullable=False)
 
-    contributing_signal_ids: Mapped[list] = mapped_column(JSON, nullable=False)
-    affected_entity_ids: Mapped[list] = mapped_column(JSON, nullable=False)
+    contributing_signal_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    affected_entity_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False)
     rule_name: Mapped[str] = mapped_column(String(100), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="open", nullable=False)
 

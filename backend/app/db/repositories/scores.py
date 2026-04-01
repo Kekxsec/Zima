@@ -1,7 +1,7 @@
 # backend/app/db/repositories/scores.py
 import uuid
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.scoring.models import Score
@@ -51,6 +51,18 @@ class ScoreRepository:
             .where(Score.user_id == user_id)
         )
         return list(result.scalars().all())
+
+    async def get_all_for_user(self, user_id: uuid.UUID) -> list[Score]:
+        result = await self.session.execute(
+            select(Score)
+            .where(Score.user_id == user_id)
+            .order_by(Score.calculated_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def delete_all_for_user(self, user_id: uuid.UUID) -> None:
+        """Hard-deletes all scores for a user. Used by GDPR erasure."""
+        await self.session.execute(delete(Score).where(Score.user_id == user_id))
 
     async def get_history_for_domain(
         self,

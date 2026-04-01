@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 import secure
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -13,6 +14,7 @@ from backend.app.api.router import api_router
 from backend.app.core.config import settings
 from backend.app.core.logging import configure_logging, get_logger
 from backend.app.core.rate_limit import limiter
+from backend.app.core.startup import check_environment, check_redis
 
 logger = get_logger(__name__)
 
@@ -46,6 +48,20 @@ async def _periodic_token_cleanup() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging()
+    check_environment()
+    await check_redis()
+
+    # Clear stale scans from any previous crashed instance
+    from backend.app.db.repositories.scans import ScanRepository
+    from backend.app.db.session import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as session:
+        scan_repo = ScanRepository(session)
+        stale_count = await scan_repo.mark_stale_scans_failed()
+        await session.commit()
+        if stale_count > 0:
+            logger.info("startup.stale_scans_cleared", count=stale_count)
+
     cleanup_task = asyncio.create_task(_periodic_token_cleanup())
     try:
         yield
@@ -69,6 +85,7 @@ secure_headers = secure.Secure(
     referrer=secure.ReferrerPolicy().strict_origin_when_cross_origin(),
     cache=secure.CacheControl().no_store(),
     xcto=secure.XContentTypeOptions(),
+    permissions=secure.PermissionsPolicy().geolocation().camera().microphone(),
 )
 
 
@@ -85,6 +102,27 @@ def create_app() -> FastAPI:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]  # slowapi typing
 
+    @app.exception_handler(Exception)
+    async def global_exception_handler(
+        request: Request, exc: Exception
+    ) -> JSONResponse:
+        logger.error(
+            "unhandled_exception",
+            path=request.url.path,
+            method=request.method,
+            error=str(exc),
+            exc_info=True,
+        )
+        if settings.is_production:
+            return JSONResponse(
+                status_code=500,
+                content={"detail": "An internal error occurred."},
+            )
+        return JSONResponse(
+            status_code=500,
+            content={"detail": str(exc)},
+        )
+
     @app.middleware("http")
     async def set_security_headers(
         request: Request,
@@ -98,7 +136,7 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.cors_allowed_origins,
         allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"],
     )
 

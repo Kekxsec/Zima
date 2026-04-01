@@ -32,6 +32,9 @@ class AuditEventType:
 
     # Findings
     FINDING_SUPPRESSED = "finding.suppressed"
+    FINDING_UNSUPPRESSED = "finding.unsuppressed"
+    FINDING_RESOLVED = "finding.resolved"
+    FINDING_REOPENED = "finding.reopened"
     SIGNAL_SUPPRESSED = "signal.suppressed"
 
 

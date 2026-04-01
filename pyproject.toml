@@ -21,7 +21,10 @@ dependencies = [
     "secure>=0.3.0",
     "resend>=2.0.0",
     "stripe>=9.0.0",
+    "python-multipart>=0.0.9",
     "pyyaml>=6.0.1",
+    "holehe>=1.61",
+    "maigret>=0.5.0",
 ]
 
 [project.optional-dependencies]

@@ -1,0 +1,242 @@
+{
+  "main": {
+    "id": "b636051540018b0f",
+    "type": "split",
+    "children": [
+      {
+        "id": "46b45608140f90f6",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "d6175ebf33b9c9f7",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Zima/MVP Build/launch-execution-guide.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "launch-execution-guide"
+            }
+          },
+          {
+            "id": "4756313f47c01586",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Zima/MVP Build/launch-execution-guide.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "launch-execution-guide"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "84e9ea9405669cde",
+    "type": "split",
+    "children": [
+      {
+        "id": "d2a00a433b968f2b",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "dc188a4ffde7cca5",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "216ff316e6f40c38",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "cb1d5dc34e58a5e7",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 313.5
+  },
+  "right": {
+    "id": "1244c7d8a27b700f",
+    "type": "split",
+    "children": [
+      {
+        "id": "a2c0851a4555edd1",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "55b8a8e74af1bd00",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks"
+            }
+          },
+          {
+            "id": "a2b6ca308de0436d",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links"
+            }
+          },
+          {
+            "id": "6414b55f1dd533f5",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "68b4316b4f34ccfa",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "2870ffb8d966ba98",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "d6175ebf33b9c9f7",
+  "lastOpenFiles": [
+    "Zima/Research/Providers/tools/chromium_enterprise_policies/prompt.md",
+    "Zima/Research/Providers/threat_intel/darkeye/prompt.md",
+    "Zima/Research/Providers/tools/huginn_muninn/prompt.md",
+    "Zima/Research/Providers/tools/frankenstein/prompt.md",
+    "Zima/Research/Providers/threat_intel/intelx/prompt.md",
+    "Zima/Research/Providers/threat_intel/leakix/prompt.md",
+    "Zima/Research/Providers/tools/oui_master_database/prompt.md",
+    "Zima/Research/Providers/threat_intel/darkeye/output.md",
+    "Zima/Research/Providers/tools/huginn_muninn/output.md",
+    "Zima/Research/Providers/tools/frankenstein/output.md",
+    "Zima/Research/Providers/threat_intel/intelx/output.md",
+    "Zima/Research/Providers/threat_intel/leakix/output.md",
+    "Zima/Research/Providers/tools/oui_master_database/output.md",
+    "Zima/Research/Providers/threat_intel/darkeye/darkeye.md",
+    "Zima/Research/Providers/tools/huginn_muninn/huginn_muninn.md",
+    "Zima/Research/Providers/tools/frankenstein/frankenstein.md",
+    "Zima/Research/Providers/threat_intel/intelx/intelx.md",
+    "Zima/Research/Providers/threat_intel/leakix/leakix.md",
+    "Zima/Research/Providers/tools/oui_master_database/oui_master_database.md",
+    "Zima/Research/Providers/threat_intel/darkeye",
+    "Zima/Research/Providers/tools/huginn_muninn",
+    "Zima/Research/Providers/tools/frankenstein",
+    "Zima/Research/Providers/threat_intel/intelx",
+    "Zima/Research/Providers/threat_intel/leakix",
+    "Zima/Research/Providers/tools/oui_master_database",
+    "Zima/Research/Providers/tools/firefox_enterprise_policies/prompt.md",
+    "Zima/Research/Providers/cloud/chrome_web_store_api/prompt.md",
+    "Zima/Research/Providers/tools/chromium_enterprise_policies/output.md",
+    "Zima/Research/Providers/social/epieos/prompt.md",
+    "Zima/Research/Providers/social/epieos/output.md",
+    "Zima/Research/Providers/social/accounts/prompt.md",
+    "Zima/Research/awesome-osint-mcp-servers.md",
+    "Zima/Research/Providers/tools/mailcat",
+    "Zima/Research/Providers/tools/socid_extractor",
+    "Zima/Research/Providers/social/serus",
+    "Zima/Research/Providers/breach/serus.ai",
+    "Untitled 5.canvas",
+    "Untitled 4.canvas",
+    "Untitled 2.canvas",
+    "Untitled 1.canvas",
+    "Untitled.canvas",
+    "Untitled 3.canvas"
+  ]
+}

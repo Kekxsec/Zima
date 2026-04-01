@@ -1,7 +1,7 @@
 # backend/app/db/repositories/signals.py
 import uuid
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,7 +21,9 @@ class SignalRepository:
         already exists, it is updated to open status with fresh evidence.
         This prevents duplicate rows on repeated scan runs.
         """
-        signal_id = compute_signal_id(data.user_id, data.signal_type, data.entity_id)
+        signal_id = compute_signal_id(
+            data.user_id, data.signal_type, data.entity_id, data.source_ref
+        )
 
         stmt = (
             pg_insert(Signal)
@@ -73,6 +75,38 @@ class SignalRepository:
         )
         return list(result.scalars().all())
 
+    async def get_for_user_by_status(
+        self,
+        user_id: uuid.UUID,
+        status: str,
+        limit: int = 20,
+        offset: int = 0,
+        exclude_signal_types: list[str] | None = None,
+    ) -> list[Signal]:
+        query = select(Signal).where(Signal.user_id == user_id, Signal.status == status)
+        if exclude_signal_types:
+            query = query.where(Signal.signal_type.not_in(exclude_signal_types))
+        result = await self.session.execute(
+            query.order_by(Signal.created_at.desc()).limit(limit).offset(offset)
+        )
+        return list(result.scalars().all())
+
+    async def count_for_user_by_status(
+        self,
+        user_id: uuid.UUID,
+        status: str,
+        exclude_signal_types: list[str] | None = None,
+    ) -> int:
+        query = (
+            select(func.count())
+            .select_from(Signal)
+            .where(Signal.user_id == user_id, Signal.status == status)
+        )
+        if exclude_signal_types:
+            query = query.where(Signal.signal_type.not_in(exclude_signal_types))
+        result = await self.session.execute(query)
+        return result.scalar_one()
+
     async def count_open_for_user(self, user_id: uuid.UUID) -> int:
         result = await self.session.execute(
             select(func.count())
@@ -80,3 +114,49 @@ class SignalRepository:
             .where(Signal.user_id == user_id, Signal.status == SignalStatus.OPEN)
         )
         return result.scalar_one()
+
+    async def get_all_for_user(self, user_id: uuid.UUID) -> list[Signal]:
+        result = await self.session.execute(
+            select(Signal)
+            .where(Signal.user_id == user_id)
+            .order_by(Signal.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def suppress(self, user_id: uuid.UUID, signal_id: str) -> bool:
+        """Sets an open signal to suppressed. Returns True if a row was updated."""
+        result = await self.session.execute(
+            update(Signal)
+            .where(
+                Signal.signal_id == signal_id,
+                Signal.user_id == user_id,
+                Signal.status == SignalStatus.OPEN,
+            )
+            .values(status=SignalStatus.SUPPRESSED)
+            .returning(Signal.id)
+        )
+        return result.scalar_one_or_none() is not None
+
+    async def get_breached_entity_values_for_user(
+        self, user_id: uuid.UUID
+    ) -> frozenset[str]:
+        """
+        Returns the set of entity_value strings (email addresses) that have at
+        least one open breach-related signal for this user.  Used to overlay
+        breach status onto discovered accounts at export time.
+        """
+        result = await self.session.execute(
+            select(Signal.entity_value)
+            .where(
+                Signal.user_id == user_id,
+                Signal.signal_type.in_(
+                    ["email_breached", "credential_exposure", "stealer_log_exposure"]
+                ),
+            )
+            .distinct()
+        )
+        return frozenset(v for v in result.scalars().all() if v)
+
+    async def delete_all_for_user(self, user_id: uuid.UUID) -> None:
+        """Hard-deletes all signals for a user. Used by GDPR erasure."""
+        await self.session.execute(delete(Signal).where(Signal.user_id == user_id))
