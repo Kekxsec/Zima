@@ -58,28 +58,52 @@ def test_holehe_raises_when_unavailable() -> None:
             HoleheProvider._resolve_invocation()
 
 
-def test_holehe_raises_on_nonzero_exit() -> None:
-    with patch("backend.app.providers.tools.holehe.client.subprocess.run") as mock_run:
-        mock_run.return_value.returncode = 1
-        mock_run.return_value.stdout = ""
-        mock_run.return_value.stderr = "Traceback: update check failed"
-
+@pytest.mark.asyncio
+async def test_holehe_raises_on_nonzero_exit() -> None:
+    mock_proc = type(
+        "Proc",
+        (),
+        {
+            "communicate": lambda self, timeout=None: (
+                b"",
+                b"Traceback: update check failed",
+            ),
+            "returncode": 1,
+            "pid": 99999,
+            "__enter__": lambda self: self,
+            "__exit__": lambda self, *a: None,
+        },
+    )()
+    with patch(
+        "backend.app.providers.tools.holehe.client.subprocess.Popen",
+        return_value=mock_proc,
+    ):
         with pytest.raises(ProviderError, match="update check failed"):
-            HoleheProvider._run_holehe(
+            await HoleheProvider._run_holehe_async(
                 "person@example.com",
                 ["/usr/local/bin/holehe"],
             )
 
 
-def test_holehe_parses_domain_without_recovery_metadata() -> None:
-    with patch("backend.app.providers.tools.holehe.client.subprocess.run") as mock_run:
-        mock_run.return_value.returncode = 0
-        mock_run.return_value.stdout = (
-            "[+] github.com / FullName Test User\n[+] spotify.com\n"
-        )
-        mock_run.return_value.stderr = ""
-
-        found = HoleheProvider._run_holehe(
+@pytest.mark.asyncio
+async def test_holehe_parses_domain_without_recovery_metadata() -> None:
+    stdout = b"[+] github.com / FullName Test User\n[+] spotify.com\n"
+    mock_proc = type(
+        "Proc",
+        (),
+        {
+            "communicate": lambda self, timeout=None: (stdout, b""),
+            "returncode": 0,
+            "pid": 99999,
+            "__enter__": lambda self: self,
+            "__exit__": lambda self, *a: None,
+        },
+    )()
+    with patch(
+        "backend.app.providers.tools.holehe.client.subprocess.Popen",
+        return_value=mock_proc,
+    ):
+        found = await HoleheProvider._run_holehe_async(
             "person@example.com",
             ["/usr/local/bin/holehe"],
         )

@@ -50,6 +50,43 @@ class AuthService:
         self.token_repo = token_repo
         self.audit_repo = audit_repo
 
+    @staticmethod
+    def _is_otp_locked(user: User | None, *, asset_flow: bool = False) -> bool:
+        if user is None:
+            return False
+        locked_until = (
+            user.asset_otp_locked_until if asset_flow else user.otp_locked_until
+        )
+        return locked_until is not None and locked_until > datetime.now(UTC)
+
+    @staticmethod
+    def _record_otp_failure(user: User, *, asset_flow: bool = False) -> bool:
+        if asset_flow:
+            user.asset_otp_fail_count = (user.asset_otp_fail_count or 0) + 1
+            if user.asset_otp_fail_count >= OTP_MAX_FAILURES:
+                user.asset_otp_locked_until = datetime.now(UTC) + timedelta(
+                    minutes=OTP_LOCKOUT_MINUTES
+                )
+                return True
+            return False
+
+        user.otp_fail_count = (user.otp_fail_count or 0) + 1
+        if user.otp_fail_count >= OTP_MAX_FAILURES:
+            user.otp_locked_until = datetime.now(UTC) + timedelta(
+                minutes=OTP_LOCKOUT_MINUTES
+            )
+            return True
+        return False
+
+    @staticmethod
+    def _reset_otp_failures(user: User, *, asset_flow: bool = False) -> None:
+        if asset_flow:
+            user.asset_otp_fail_count = 0
+            user.asset_otp_locked_until = None
+            return
+        user.otp_fail_count = 0
+        user.otp_locked_until = None
+
     async def request_otp(
         self,
         email: str,
@@ -70,7 +107,7 @@ class AuthService:
 
         active_count = await self.token_repo.count_active_for_email(email)
         if active_count >= MAX_ACTIVE_TOKENS_PER_EMAIL:
-            logger.warning("auth.otp_rate_limit", ip=requesting_ip)
+            logger.warning("security.otp_rate_limit", ip=requesting_ip)
             await self.audit_repo.log(
                 event_type=AuditEventType.OTP_RATE_LIMITED,
                 ip_address=requesting_ip,
@@ -147,12 +184,8 @@ class AuthService:
         user = await self.user_repo.get_by_email(email)
 
         # Lockout check — block immediately without revealing the token state.
-        if (
-            user
-            and user.otp_locked_until is not None
-            and user.otp_locked_until > datetime.now(UTC)
-        ):
-            logger.warning("auth.otp_verify_locked", email_domain=email_domain)
+        if self._is_otp_locked(user):
+            logger.warning("security.otp_verify_locked", email_domain=email_domain)
             await self.audit_repo.log(
                 event_type=AuditEventType.SIGN_IN_FAILED,
                 metadata={"email_domain": email_domain, "reason": "locked"},
@@ -164,17 +197,14 @@ class AuthService:
         token = await self.token_repo.get_valid_token(email, _hash_code(code))
 
         if not token:
-            logger.warning("auth.otp_verify_failed", email_domain=email_domain)
+            logger.warning("security.otp_verify_failed", email_domain=email_domain)
             # Increment failure counter. On reaching OTP_MAX_FAILURES, lock the
             # account for OTP_LOCKOUT_MINUTES to slow distributed brute-force.
             if user:
-                user.otp_fail_count = (user.otp_fail_count or 0) + 1
-                if user.otp_fail_count >= OTP_MAX_FAILURES:
-                    user.otp_locked_until = datetime.now(UTC) + timedelta(
-                        minutes=OTP_LOCKOUT_MINUTES
-                    )
+                locked = self._record_otp_failure(user)
+                if locked:
                     logger.warning(
-                        "auth.otp_account_locked",
+                        "security.otp_account_locked",
                         email_domain=email_domain,
                         fail_count=user.otp_fail_count,
                     )
@@ -205,9 +235,14 @@ class AuthService:
             raise AuthTokenInvalidException("Invalid or expired code.")
 
         # Successful verification — reset brute-force counters.
-        user.otp_fail_count = 0
-        user.otp_locked_until = None
+        self._reset_otp_failures(user)
         user.last_sign_in_at = datetime.now(UTC)
+        # Record consent timestamp on first successful sign-in if not already set.
+        # request_otp sets this when privacy_policy_accepted=True is passed; this
+        # is the fallback for users who completed the OTP flow without passing the
+        # flag (e.g. legacy sessions or direct API callers).
+        if user.privacy_policy_accepted_at is None:
+            user.privacy_policy_accepted_at = datetime.now(UTC)
         await self.audit_repo.log(
             event_type=AuditEventType.SIGN_IN_SUCCESS,
             user_id=user.id,
@@ -220,13 +255,14 @@ class AuthService:
             tier=user.tier,
         )
 
-        logger.info("auth.sign_in_success", user_id=str(user.id))
+        logger.info("security.sign_in_success", user_id=str(user.id))
         return user, jwt_token
 
     async def request_asset_email_otp(
         self,
         email: str,
         requesting_ip: str,
+        user: User,
     ) -> str | None:
         """
         Generates an OTP for verifying an additional email asset.
@@ -238,9 +274,16 @@ class AuthService:
         Returns the raw code on success, or None if rate limited.
         """
         email = email.lower().strip()
+        if self._is_otp_locked(user, asset_flow=True):
+            logger.warning(
+                "security.asset_otp_request_locked",
+                user_id=str(user.id),
+                email_domain=email.split("@")[-1],
+            )
+            return None
         active_count = await self.token_repo.count_active_for_email(email)
         if active_count >= MAX_ACTIVE_TOKENS_PER_EMAIL:
-            logger.warning("auth.asset_otp_rate_limit", ip=requesting_ip)
+            logger.warning("security.asset_otp_rate_limit", ip=requesting_ip)
             return None
         raw_code = _generate_code()
         token = AuthToken(
@@ -254,7 +297,7 @@ class AuthService:
         logger.info("auth.asset_otp_issued", email_domain=email.split("@")[-1])
         return raw_code
 
-    async def verify_asset_email_otp(self, email: str, code: str) -> bool:
+    async def verify_asset_email_otp(self, email: str, code: str, user: User) -> bool:
         """
         Verifies an OTP for an additional email asset.
 
@@ -262,14 +305,26 @@ class AuthService:
         Does not create a session — the caller registers the asset.
         """
         email = email.lower().strip()
-        token = await self.token_repo.get_valid_token(email, _hash_code(code))
-        if not token:
+        if self._is_otp_locked(user, asset_flow=True):
             logger.warning(
-                "auth.asset_otp_verify_failed",
+                "security.asset_otp_verify_locked",
+                user_id=str(user.id),
                 email_domain=email.split("@")[-1],
             )
             return False
+        token = await self.token_repo.get_valid_token(email, _hash_code(code))
+        if not token:
+            locked = self._record_otp_failure(user, asset_flow=True)
+            logger.warning(
+                "security.asset_otp_verify_failed",
+                email_domain=email.split("@")[-1],
+                user_id=str(user.id),
+                locked=locked,
+            )
+            await self.session.commit()
+            return False
         token.used_at = datetime.now(UTC)
+        self._reset_otp_failures(user, asset_flow=True)
         await self.session.commit()
         logger.info("auth.asset_otp_verified", email_domain=email.split("@")[-1])
         return True
@@ -278,6 +333,7 @@ class AuthService:
         self,
         phone: str,
         requesting_ip: str,
+        user: User,
     ) -> str | None:
         """
         Generates an OTP for verifying a phone number asset.
@@ -289,9 +345,12 @@ class AuthService:
         Returns the raw code on success, or None if rate limited.
         """
         phone = phone.strip()
+        if self._is_otp_locked(user, asset_flow=True):
+            logger.warning("security.phone_otp_request_locked", user_id=str(user.id))
+            return None
         active_count = await self.token_repo.count_active_for_email(phone)
         if active_count >= MAX_ACTIVE_TOKENS_PER_EMAIL:
-            logger.warning("auth.phone_otp_rate_limit", ip=requesting_ip)
+            logger.warning("security.phone_otp_rate_limit", ip=requesting_ip)
             return None
         raw_code = _generate_code()
         token = AuthToken(
@@ -305,7 +364,7 @@ class AuthService:
         logger.info("auth.phone_otp_issued")
         return raw_code
 
-    async def verify_asset_phone_otp(self, phone: str, code: str) -> bool:
+    async def verify_asset_phone_otp(self, phone: str, code: str, user: User) -> bool:
         """
         Verifies an OTP for a phone number asset.
 
@@ -313,11 +372,21 @@ class AuthService:
         Does not create a session — the caller registers the asset.
         """
         phone = phone.strip()
+        if self._is_otp_locked(user, asset_flow=True):
+            logger.warning("security.phone_otp_verify_locked", user_id=str(user.id))
+            return False
         token = await self.token_repo.get_valid_token(phone, _hash_code(code))
         if not token:
-            logger.warning("auth.phone_otp_verify_failed")
+            locked = self._record_otp_failure(user, asset_flow=True)
+            logger.warning(
+                "security.phone_otp_verify_failed",
+                user_id=str(user.id),
+                locked=locked,
+            )
+            await self.session.commit()
             return False
         token.used_at = datetime.now(UTC)
+        self._reset_otp_failures(user, asset_flow=True)
         await self.session.commit()
         logger.info("auth.phone_otp_verified")
         return True

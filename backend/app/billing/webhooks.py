@@ -1,22 +1,55 @@
 # backend/app/billing/webhooks.py
+import ipaddress
+
 import stripe
 from fastapi import APIRouter, HTTPException, Request
-from sqlalchemy import update
 
-from backend.app.auth.models import User
 from backend.app.core.config import settings
 from backend.app.core.logging import get_logger
+from backend.app.core.rate_limit import get_real_ip
+from backend.app.db.repositories.users import UserRepository
 from backend.app.db.session import AsyncSessionLocal
 from backend.app.tiers.loader import load_tier_config
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = get_logger(__name__)
 
+# Stripe's published webhook delivery IP ranges.
+# Source: https://stripe.com/docs/ips (verified 2026-04)
+# Signature verification is the primary security control; IP filtering is
+# defence-in-depth only.  Update this list when Stripe publishes new ranges.
+_STRIPE_WEBHOOK_IPS: frozenset[str] = frozenset(
+    [
+        "3.18.12.63",
+        "3.130.192.231",
+        "13.235.14.237",
+        "13.235.122.149",
+        "18.211.135.69",
+        "35.154.171.200",
+        "52.15.183.38",
+        "54.88.130.119",
+        "54.88.130.237",
+        "54.187.174.169",
+        "54.187.205.235",
+        "54.187.216.72",
+    ]
+)
+
+
+def _is_stripe_ip(request: Request) -> bool:
+    """Returns True if the request appears to come from a known Stripe IP."""
+    client_ip = get_real_ip(request)
+    try:
+        addr = ipaddress.ip_address(client_ip)
+        return str(addr) in _STRIPE_WEBHOOK_IPS
+    except ValueError:
+        return False
+
 
 def _build_price_to_tier_map() -> dict[str, str]:
     mapping: dict[str, str] = {}
     if settings.stripe_price_shield_monthly:
-        mapping[settings.stripe_price_shield_monthly] = "shield"
+        mapping[settings.stripe_price_shield_monthly] = "plus"
     if settings.stripe_price_pro_monthly:
         mapping[settings.stripe_price_pro_monthly] = "pro"
     return mapping
@@ -30,6 +63,15 @@ async def stripe_webhook(request: Request) -> dict[str, bool]:
     """
     if not settings.stripe_webhook_secret:
         raise HTTPException(status_code=500, detail="Webhook secret not configured")
+
+    # Defence-in-depth: reject requests that don't come from a known Stripe IP.
+    # Signature verification below is the primary security control.
+    if not _is_stripe_ip(request):
+        logger.warning(
+            "security.webhook.unexpected_source_ip",
+            ip=get_real_ip(request),
+        )
+        raise HTTPException(status_code=400, detail="Forbidden source IP")
 
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature", "")
@@ -66,13 +108,11 @@ async def _handle_subscription_updated(
     stripe_customer_id = subscription["customer"]
 
     async with AsyncSessionLocal() as session:
-        await session.execute(
-            update(User)
-            .where(User.stripe_customer_id == stripe_customer_id)
-            .values(
-                tier=new_tier,
-                stripe_subscription_id=subscription["id"],
-            )
+        repo = UserRepository(session)
+        await repo.update_tier_by_stripe_customer_id(
+            stripe_customer_id=stripe_customer_id,
+            tier=new_tier,
+            stripe_subscription_id=subscription["id"],
         )
         await session.commit()
 
@@ -86,10 +126,11 @@ async def _handle_subscription_deleted(subscription: dict) -> None:
     stripe_customer_id = subscription["customer"]
 
     async with AsyncSessionLocal() as session:
-        await session.execute(
-            update(User)
-            .where(User.stripe_customer_id == stripe_customer_id)
-            .values(tier="core", stripe_subscription_id=None)
+        repo = UserRepository(session)
+        await repo.update_tier_by_stripe_customer_id(
+            stripe_customer_id=stripe_customer_id,
+            tier="core",
+            stripe_subscription_id=None,
         )
         await session.commit()
 

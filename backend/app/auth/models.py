@@ -39,6 +39,15 @@ class User(Base, TimestampMixin):
     otp_locked_until: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    asset_otp_fail_count: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False
+    )
+    asset_otp_locked_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    session_revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     @property
     def is_deleted(self) -> bool:

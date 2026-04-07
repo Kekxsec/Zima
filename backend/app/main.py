@@ -14,11 +14,49 @@ from backend.app.api.router import api_router
 from backend.app.core.config import settings
 from backend.app.core.logging import configure_logging, get_logger
 from backend.app.core.rate_limit import limiter
-from backend.app.core.startup import check_environment, check_redis
+from backend.app.core.startup import (
+    check_environment,
+    check_redis,
+    check_tls_in_connection_strings,
+)
 
 logger = get_logger(__name__)
 
 _CLEANUP_INTERVAL_SECONDS = 24 * 60 * 60  # 24 hours
+_REDIS_HEALTH_CHECK_INTERVAL = 60  # seconds
+_MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024  # 10 MB — matches vault import cap
+
+
+async def _periodic_redis_health_check() -> None:
+    """
+    Periodically verify Redis is still reachable.
+
+    slowapi fails-open when Redis is unavailable: all requests are allowed
+    through, silently removing OTP brute-force and scan-rate protection.
+    This task logs an error every 60 seconds while Redis is down so the
+    outage is visible in production monitoring and can trigger an alert.
+    """
+    import redis.asyncio as aioredis
+
+    while True:
+        try:
+            await asyncio.sleep(_REDIS_HEALTH_CHECK_INTERVAL)
+            client: aioredis.Redis = aioredis.from_url(
+                settings.redis_url, socket_connect_timeout=3
+            )
+            await client.ping()
+            await client.aclose()
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            logger.error(
+                "security.redis_health_check_failed",
+                error=str(exc),
+                detail=(
+                    "Rate limiting is likely fail-open. "
+                    "OTP brute-force protection may be inactive."
+                ),
+            )
 
 
 async def _periodic_token_cleanup() -> None:
@@ -49,6 +87,7 @@ async def _periodic_token_cleanup() -> None:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging()
     check_environment()
+    check_tls_in_connection_strings()
     await check_redis()
 
     # Clear stale scans from any previous crashed instance
@@ -63,14 +102,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.info("startup.stale_scans_cleared", count=stale_count)
 
     cleanup_task = asyncio.create_task(_periodic_token_cleanup())
+    redis_health_task = asyncio.create_task(_periodic_redis_health_check())
     try:
         yield
     finally:
-        cleanup_task.cancel()
-        try:
-            await cleanup_task
-        except asyncio.CancelledError:
-            pass
+        for task in (cleanup_task, redis_health_task):
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 
 secure_headers = secure.Secure(
@@ -94,6 +135,7 @@ def create_app() -> FastAPI:
         title="Zima API",
         version="0.1.0",
         lifespan=lifespan,
+        redirect_slashes=False,
         docs_url="/docs" if not settings.is_production else None,
         redoc_url="/redoc" if not settings.is_production else None,
         openapi_url="/openapi.json" if not settings.is_production else None,
@@ -122,6 +164,30 @@ def create_app() -> FastAPI:
             status_code=500,
             content={"detail": str(exc)},
         )
+
+    @app.middleware("http")
+    async def enforce_max_body_size(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        """
+        Fast-reject oversized requests before they reach endpoint handlers.
+        Relies on the Content-Length header for early rejection; requests that
+        omit Content-Length are still bounded by the chunked reader in each
+        endpoint (e.g. _read_upload_limited in imports.py).
+        """
+        if request.method in ("POST", "PUT", "PATCH"):
+            content_length_header = request.headers.get("content-length")
+            if content_length_header:
+                try:
+                    if int(content_length_header) > _MAX_REQUEST_BODY_BYTES:
+                        return JSONResponse(
+                            status_code=413,
+                            content={"detail": "Request body too large."},
+                        )
+                except ValueError:
+                    pass
+        return await call_next(request)
 
     @app.middleware("http")
     async def set_security_headers(

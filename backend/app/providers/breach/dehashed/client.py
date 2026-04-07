@@ -1,13 +1,12 @@
 # backend/app/providers/breach/dehashed/client.py
 from __future__ import annotations
 
-# --- Migration notes (severity/inheritance stripped) ---
-# STRIPPED: severity=FindingSeverity.HIGH
-# --- End migration notes ---
 # Adapted from SpiderFoot module: modules/sfp_dehashed.py (MIT licensed)
 import base64
 import urllib.parse
 from typing import Any
+
+from pydantic import SecretStr
 
 from backend.app.providers.base.client import BaseProviderClient
 from backend.app.providers.base.exceptions import (
@@ -23,14 +22,14 @@ class DehashedProvider(BaseProviderClient):
         self, api_email: str = "", api_key: str = "", timeout_seconds: int = 15
     ) -> None:
         super().__init__(timeout_seconds=timeout_seconds)
-        self._api_email = api_email
-        self._api_key = api_key
+        self._api_email: SecretStr = SecretStr(api_email)
+        self._api_key: SecretStr = SecretStr(api_key)
 
     async def search_breaches(
         self, *, domain: str | None = None, email: str | None = None
     ) -> list[dict[str, Any]]:
-        api_email = str(self._api_email).strip()
-        api_key = str(self._api_key).strip()
+        api_email = self._api_email.get_secret_value().strip()
+        api_key = self._api_key.get_secret_value().strip()
         if not api_email or not api_key:
             raise ProviderError(
                 message="DeHashed email and API key are required", retryable=False

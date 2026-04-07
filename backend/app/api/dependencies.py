@@ -1,10 +1,12 @@
 # backend/app/api/dependencies.py
 import uuid
+from datetime import datetime
 
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.assets.service import AssetService
+from backend.app.auth.blacklist import token_blacklist
 from backend.app.auth.models import User
 from backend.app.auth.service import AuthService
 from backend.app.auth.utils import decode_access_token
@@ -56,6 +58,22 @@ async def get_current_user(
 
     if not user:
         raise credentials_exception
+
+    # Primary revocation check: JTI blacklist (Redis).
+    # Provides immediate, per-token revocation without race conditions.
+    jti = payload.get("jti")
+    if isinstance(jti, str) and jti:
+        if await token_blacklist.is_revoked(jti):
+            raise credentials_exception
+
+    # Fallback revocation: timestamp comparison for tokens that predate JTI
+    # support or when the Redis blacklist is unavailable.
+    issued_at = payload.get("iat")
+    if user.session_revoked_at is not None:
+        if not isinstance(issued_at, datetime):
+            raise credentials_exception
+        if issued_at <= user.session_revoked_at:
+            raise credentials_exception
 
     return user
 

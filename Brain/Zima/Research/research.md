@@ -12,10 +12,13 @@ obsidianUIMode: preview
 
 - [[launch-research-dashboard|launch research dashboard]]
 - [[launch-provider-status-board|launch provider status board]]
-- [[launch-focus-providers|launch focus providers]]
-- [[launch-provider-research-plan|launch provider research plan]]
-- [[provider-research-protocol|provider research protocol]]
 - [[launch-provider-matrix|launch provider matrix]]
+- [[provider-research-protocol|provider research protocol]]
+
+## security findings
+
+- [[Security/wave-1-security-review|wave 1 security review]]
+- [[Security/wave-1-remediation-guide|wave 1 remediation guide]]
 
 ## security pillars
 

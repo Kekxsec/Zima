@@ -16,14 +16,14 @@ class CrxcavatorProvider(BaseProviderClient):
     base_url = "https://api.crxcavator.io/v1"
 
     def __init__(self, timeout_seconds: int = 15):
-        self._timeout_seconds = timeout_seconds
+        super().__init__(timeout_seconds=timeout_seconds)
 
     async def check_extensions(self, domain: str) -> list[dict[str, Any]]:
         findings, evidence = [], []
         seen: set[str] = set()
         val = domain.strip()
         url = f"{self.base_url}/search?{urllib.parse.urlencode({'q': val})}"
-        data = self._fetch(url)
+        data = await self._fetch(url)
         results = data if isinstance(data, list) else []
         if not isinstance(results, list):
             return findings
@@ -57,6 +57,34 @@ class CrxcavatorProvider(BaseProviderClient):
                     )
                 )
         return findings
+
+    async def check_extension(
+        self,
+        extension_id: str,
+        version: str,
+        platform: str = "Chrome",
+    ) -> dict[str, Any]:
+        """Fetch a risk report for a specific extension ID, version, and platform.
+
+        Returns the parsed JSON body (includes data.risk.total) or {} if not found.
+        """
+        url = (
+            f"{self.base_url}/report/{urllib.parse.quote(extension_id, safe='')}"
+            f"/{urllib.parse.quote(version, safe='')}"
+            f"?{urllib.parse.urlencode({'platform': platform})}"
+        )
+        return await self._fetch(url)
+
+    async def get_versions(self, extension_id: str) -> list[dict[str, Any]]:
+        """Fetch all known versions for an extension (inferred endpoint).
+
+        Returns a list of version records, each containing at least a 'version'
+        field. Returns [] if the extension is unknown or the endpoint returns
+        a non-list body.
+        """
+        url = f"{self.base_url}/report/{urllib.parse.quote(extension_id, safe='')}"
+        data = await self._fetch(url)
+        return data if isinstance(data, list) else []
 
     async def _fetch(self, url: str) -> dict:
         return await self._get(url, label="Crxcavator", timeout=self._timeout_seconds)

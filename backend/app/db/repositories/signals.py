@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.core.enums import SignalStatus
 from backend.app.signals.dedup import compute_signal_id
 from backend.app.signals.models import Signal
+from backend.app.signals.redaction import redact_evidence
+from backend.app.signals.retention import classify_signal, minimise_evidence
 from backend.app.signals.schemas import SignalCreate
 
 
@@ -25,6 +27,10 @@ class SignalRepository:
             data.user_id, data.signal_type, data.entity_id, data.source_ref
         )
 
+        redacted = redact_evidence(data.evidence)
+        retention_class = classify_signal(data.signal_type)
+        safe_evidence = minimise_evidence(redacted, retention_class)
+
         stmt = (
             pg_insert(Signal)
             .values(
@@ -41,7 +47,7 @@ class SignalRepository:
                 provider=data.provider,
                 summary=data.summary,
                 details=data.details,
-                evidence=data.evidence,
+                evidence=safe_evidence,
                 tags=data.tags,
                 recommended_action=data.recommended_action,
                 status=SignalStatus.OPEN,
@@ -51,7 +57,7 @@ class SignalRepository:
                 set_={
                     "status": SignalStatus.OPEN,
                     "severity": data.severity.value,
-                    "evidence": data.evidence,
+                    "evidence": safe_evidence,
                     "updated_at": func.now(),
                 },
             )
@@ -156,6 +162,16 @@ class SignalRepository:
             .distinct()
         )
         return frozenset(v for v in result.scalars().all() if v)
+
+    async def mark_notified(self, signal_id: str) -> None:
+        """Sets notified_at on a signal so it is not re-queued for notification."""
+        from datetime import UTC, datetime
+
+        await self.session.execute(
+            update(Signal)
+            .where(Signal.signal_id == signal_id)
+            .values(notified_at=datetime.now(UTC))
+        )
 
     async def delete_all_for_user(self, user_id: uuid.UUID) -> None:
         """Hard-deletes all signals for a user. Used by GDPR erasure."""

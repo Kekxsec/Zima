@@ -1,12 +1,10 @@
 # backend/app/providers/social/epieos/client.py
 from __future__ import annotations
 
-# --- Migration notes (severity/inheritance stripped) ---
-# STRIPPED: severity=FindingSeverity.MEDIUM
-# STRIPPED: severity=FindingSeverity.LOW
-# --- End migration notes ---
 import urllib.parse
 from typing import Any
+
+from pydantic import SecretStr
 
 from backend.app.providers.base.client import BaseProviderClient
 from backend.app.providers.base.exceptions import (
@@ -22,10 +20,10 @@ class EpieosProvider(BaseProviderClient):
 
     def __init__(self, api_key: str = "", timeout_seconds: int = 15) -> None:
         super().__init__(timeout_seconds=timeout_seconds)
-        self._api_key = api_key
+        self._api_key: SecretStr = SecretStr(api_key)
 
     async def validate_email(self, email: str) -> list[dict[str, Any]]:
-        api_key = str(self._api_key).strip()
+        api_key = self._api_key.get_secret_value().strip()
         if not api_key:
             raise ProviderError(
                 message="Epieos API key is required",
@@ -63,16 +61,10 @@ class EpieosProvider(BaseProviderClient):
         ] + [str(s) for s in services if isinstance(s, str)]
 
         if google and google.get("id"):
-            name = str(google.get("name", "")).strip()
-            last_activity = str(google.get("lastActivity", "")).strip()
             maps_reviews = google.get("mapsReviews", 0)
             photos_public = google.get("photosPublic", 0)
 
             desc_parts = [f"Google account confirmed for {email}."]
-            if name:
-                desc_parts.append(f"Name: {name}.")
-            if last_activity:
-                desc_parts.append(f"Last activity: {last_activity}.")
             if maps_reviews:
                 desc_parts.append(f"Maps reviews: {maps_reviews}.")
             if photos_public:
@@ -89,13 +81,13 @@ class EpieosProvider(BaseProviderClient):
                     tags=service_tags,
                     raw={
                         "google_id": google.get("id"),
-                        "name": google.get("name"),
-                        "lastActivity": google.get("lastActivity"),
-                        "mapsReviews": google.get("mapsReviews"),
-                        "calendarEvents": google.get("calendarEvents"),
-                        "photosPublic": google.get("photosPublic"),
-                        "youtubeChannel": google.get("youtubeChannel"),
-                        "hangoutsLastActivity": google.get("hangoutsLastActivity"),
+                        "name_present": bool(google.get("name")),
+                        "last_activity_present": bool(google.get("lastActivity")),
+                        "maps_reviews_present": bool(google.get("mapsReviews")),
+                        "calendar_events_present": bool(google.get("calendarEvents")),
+                        "photos_present": bool(google.get("photosPublic")),
+                        "youtube_present": bool(google.get("youtubeChannel")),
+                        "hangouts_present": bool(google.get("hangoutsLastActivity")),
                     },
                 )
             )

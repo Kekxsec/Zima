@@ -100,6 +100,16 @@ export default function LandingPage() {
         <p className="mt-8 text-xs text-slate-600">
           No password required. No data sold. Codes expire in 15 minutes.
         </p>
+
+        <div className="mt-4 flex items-center gap-4 text-xs text-slate-700">
+          <a href="/privacy" className="hover:text-slate-500 transition-colors">
+            Privacy Policy
+          </a>
+          <span>·</span>
+          <a href="/terms" className="hover:text-slate-500 transition-colors">
+            Terms of Service
+          </a>
+        </div>
       </div>
     </div>
   )

@@ -167,7 +167,7 @@ async def test_subscription_updated_upgrades_tier(
 
     # Tier should be updated in db
     await db_session.refresh(user)
-    assert user.tier == "shield"
+    assert user.tier == "plus"
 
 
 @pytest.mark.asyncio
@@ -180,7 +180,7 @@ async def test_subscription_deleted_downgrades_to_core(
     stripe_customer_id = f"cus_{uuid.uuid4().hex}"
 
     user.stripe_customer_id = stripe_customer_id
-    user.tier = "shield"
+    user.tier = "plus"
     user.stripe_subscription_id = "sub_old"
     db_session.add(user)
     await db_session.commit()
@@ -294,7 +294,7 @@ async def test_checkout_requires_authentication(
     client: AsyncClient,
 ) -> None:
     """POST /billing/checkout/{tier} returns 401 without a token."""
-    response = await client.post("/api/v1/billing/checkout/shield")
+    response = await client.post("/api/v1/billing/checkout/plus")
     assert response.status_code == 401
 
 

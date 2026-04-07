@@ -12,7 +12,22 @@ from backend.app.email_accounts.scan_inventory import (
     build_account_upsert_payload,
     is_scan_account_signal,
 )
+from backend.app.jobs.context import ScanExecutionContext
 from backend.app.modules.base.service import BaseModuleService
+from backend.app.modules.browser.browser_configuration.service import (
+    BrowserConfigurationService,
+)
+from backend.app.modules.browser.extension_risk.service import ExtensionRiskService
+from backend.app.modules.device.device_inventory.service import DeviceInventoryService
+from backend.app.modules.device.firewall_status.service import FirewallStatusService
+from backend.app.modules.device.os_security.service import OsSecurityService
+from backend.app.modules.device.patch_status.service import PatchStatusService
+from backend.app.modules.device.software_inventory.service import (
+    SoftwareInventoryService,
+)
+from backend.app.modules.device.software_vulnerability.service import (
+    SoftwareVulnerabilityService,
+)
 from backend.app.modules.identity.account_enumeration_risk.service import (
     AccountEnumerationRiskService,
 )
@@ -26,8 +41,14 @@ from backend.app.modules.identity.breach_monitor.service import BreachMonitorSer
 from backend.app.modules.identity.credential_exposure.service import (
     CredentialExposureService,
 )
+from backend.app.modules.identity.darkweb_identity_monitor.service import (
+    DarkwebIdentityMonitorService,
+)
 from backend.app.modules.identity.maigret_scan.service import MaigretScanService
 from backend.app.modules.identity.phone_exposure.service import PhoneExposureService
+from backend.app.modules.identity.public_profile_scan.service import (
+    PublicProfileScanService,
+)
 from backend.app.modules.identity.stealer_log_exposure.service import (
     StealerLogExposureService,
 )
@@ -57,6 +78,20 @@ DOMAIN_MODULES: dict[str, list[type[BaseModuleService]]] = {
         AccountInventoryService,
         AccountEnumerationRiskService,
         AliasCorrelationService,
+        DarkwebIdentityMonitorService,
+        PublicProfileScanService,
+    ],
+    "browser": [
+        BrowserConfigurationService,
+        ExtensionRiskService,
+    ],
+    "device": [
+        OsSecurityService,
+        PatchStatusService,
+        SoftwareVulnerabilityService,
+        FirewallStatusService,
+        DeviceInventoryService,
+        SoftwareInventoryService,
     ],
 }
 
@@ -79,10 +114,12 @@ class ModuleRunner:
         user_id: uuid.UUID,
         tier: Tier,
         target_email_asset_ids: list[str] | None = None,
+        ctx: ScanExecutionContext | None = None,
     ) -> dict[str, int | list[str]]:
         """
         Runs all enabled module domains for this user's tier.
         Returns a summary dict with 'signals_created' and 'domains_run'.
+        ctx, if provided, receives module-level events for scan history.
         """
         enabled_domains = get_enabled_domains(tier)
         signals_created = 0
@@ -93,12 +130,16 @@ class ModuleRunner:
             if not module_classes:
                 continue
 
+            if ctx is not None:
+                ctx.record_event("stage_started", stage=f"domain:{domain}")
+
             for module_class in module_classes:
                 module = module_class()
                 count = await self._run_module(
                     module,
                     user_id,
                     target_email_asset_ids=target_email_asset_ids,
+                    ctx=ctx,
                 )
                 signals_created += count
 
@@ -111,12 +152,14 @@ class ModuleRunner:
         module: BaseModuleService,
         user_id: uuid.UUID,
         target_email_asset_ids: list[str] | None = None,
+        ctx: ScanExecutionContext | None = None,
     ) -> int:
         """
         Runs one module against all verified assets matching its required entity types.
         Upserts returned signals into the database.
         Catches and logs individual asset failures without stopping the run.
         Returns the total number of signals upserted.
+        ctx, if provided, receives provider-outcome events for scan history.
         """
         count = 0
         allowed_email_asset_ids = set(target_email_asset_ids or [])
@@ -135,9 +178,11 @@ class ModuleRunner:
                             user_id=user_id,
                             asset_id=asset.id,
                             asset_value=asset.value,
+                            ctx=ctx,
                         ),
                         timeout=_MODULE_ASSET_TIMEOUT_SECONDS,
                     )
+                    asset_signals = 0
                     for signal in signals:
                         if is_scan_account_signal(signal):
                             account_payload = await build_account_upsert_payload(
@@ -147,8 +192,32 @@ class ModuleRunner:
                             if account_payload is not None:
                                 await self.account_repo.upsert(**account_payload)
                             continue
+                        # Enforce per-provider and total signal budgets
+                        if ctx is not None and not ctx.record_signal_emitted(
+                            module.module_name
+                        ):
+                            logger.warning(
+                                "runner.signal_budget_exceeded",
+                                module=module.module_name,
+                                asset_id=str(asset.id),
+                            )
+                            if ctx is not None:
+                                ctx.record_event(
+                                    "budget_exceeded",
+                                    module=module.module_name,
+                                    asset_id=str(asset.id),
+                                )
+                            continue
                         await self.signal_repo.upsert(signal)
                         count += 1
+                        asset_signals += 1
+                    if ctx is not None:
+                        ctx.record_event(
+                            "provider_succeeded",
+                            module=module.module_name,
+                            asset_id=str(asset.id),
+                            signals=asset_signals,
+                        )
                 except TimeoutError:
                     logger.error(
                         "runner.module_asset_timeout",
@@ -156,6 +225,13 @@ class ModuleRunner:
                         asset_id=str(asset.id),
                         timeout=_MODULE_ASSET_TIMEOUT_SECONDS,
                     )
+                    if ctx is not None:
+                        ctx.record_event(
+                            "provider_failed",
+                            module=module.module_name,
+                            asset_id=str(asset.id),
+                            reason="timeout",
+                        )
                 except Exception as exc:
                     logger.error(
                         "runner.module_asset_error",
@@ -163,4 +239,11 @@ class ModuleRunner:
                         asset_id=str(asset.id),
                         error=str(exc),
                     )
+                    if ctx is not None:
+                        ctx.record_event(
+                            "provider_failed",
+                            module=module.module_name,
+                            asset_id=str(asset.id),
+                            reason=str(exc)[:256],
+                        )
         return count

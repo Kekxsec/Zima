@@ -9,12 +9,15 @@ from backend.app.correlation.rules.identity_compromise import HighIdentityCompro
 from backend.app.db.repositories.assets import AssetRepository
 from backend.app.db.repositories.discovered_accounts import DiscoveredAccountRepository
 from backend.app.db.repositories.findings import FindingRepository
+from backend.app.db.repositories.notification_outbox import NotificationOutboxRepository
+from backend.app.db.repositories.scan_events import ScanEventRepository
 from backend.app.db.repositories.scans import ScanRepository
 from backend.app.db.repositories.scores import ScoreRepository
 from backend.app.db.repositories.service_registry import ServiceRegistryRepository
 from backend.app.db.repositories.signals import SignalRepository
 from backend.app.db.session import AsyncSessionLocal
 from backend.app.email.service import EmailService
+from backend.app.jobs.context import ScanExecutionContext
 from backend.app.jobs.runner import ModuleRunner
 from backend.app.remediation.engine import RemediationEngine
 from backend.app.scoring.calculators.identity_score import (
@@ -29,6 +32,9 @@ logger = get_logger(__name__)
 _correlation_engine = CorrelationEngine(rules=[HighIdentityCompromiseRisk()])
 _remediation_engine = RemediationEngine()
 _email_service = EmailService()
+
+# Maximum breach alert emails written to the outbox per scan cycle.
+_MAX_OUTBOX_ENQUEUE_PER_SCAN: int = 3
 
 
 async def run_scan_task(
@@ -61,16 +67,26 @@ async def run_scan_task(
         asset_repo = AssetRepository(session)
         account_repo = DiscoveredAccountRepository(session)
         service_registry_repo = ServiceRegistryRepository(session)
+        event_repo = ScanEventRepository(session)
+        outbox_repo = NotificationOutboxRepository(session)
+
+        ctx = ScanExecutionContext(
+            scan_id=scan_id,
+            user_id=user_id,
+            tier=tier.value,
+        )
 
         await scan_repo.update_status(
             scan_id=scan_id,
             status=ScanStatus.RUNNING,
             started_at=datetime.now(UTC),
         )
+        ctx.record_event("scan_started", tier=tier.value)
         await session.commit()
 
         try:
             # ── Step 1: Run modules ─────────────────────────────────────────
+            ctx.record_event("stage_started", stage="modules")
             runner = ModuleRunner(
                 asset_repo=asset_repo,
                 signal_repo=signal_repo,
@@ -81,10 +97,19 @@ async def run_scan_task(
                 user_id=user_id,
                 tier=tier,
                 target_email_asset_ids=target_email_asset_ids,
+                ctx=ctx,
             )
+            ctx.record_event(
+                "signals_upserted",
+                count=int(run_result["signals_created"]),
+                domains=list(run_result["domains_run"]),
+                **ctx.summary(),
+            )
+            await event_repo.bulk_record(scan_id, user_id, ctx.drain_events())
             await session.commit()
 
             # ── Step 2: Correlate ──────────────────────────────────────────
+            ctx.record_event("stage_started", stage="correlation")
             signals = await signal_repo.get_open_for_user(user_id, limit=1000)
             findings = _correlation_engine.run(user_id=user_id, signals=signals)
             for finding in findings:
@@ -92,6 +117,7 @@ async def run_scan_task(
             await session.commit()
 
             # ── Step 3: Score (append-only — never overwrite) ──────────────
+            ctx.record_event("stage_started", stage="scoring")
             identity_score, signal_count = calculate_identity_score(signals)
             await score_repo.insert(
                 user_id=user_id,
@@ -103,15 +129,28 @@ async def run_scan_task(
             )
             await session.commit()
 
-            # ── Step 4: Notify for new unnotified high/critical signals ─────
-            await _send_new_signal_notifications(
+            # ── Step 4: Enqueue breach alert notifications (outbox) ────────
+            # Write outbox rows atomically with the scan commit so that a
+            # downstream email failure never loses the intent to notify.
+            # Rows are processed (sent) immediately after the commit below.
+            ctx.record_event("stage_started", stage="notifications")
+            enqueued = await _enqueue_signal_notifications(
                 user_id=user_id,
                 signals=signals,
                 asset_repo=asset_repo,
-                signal_repo=signal_repo,
+                outbox_repo=outbox_repo,
             )
+            if enqueued > 0:
+                ctx.record_event("notification_enqueued", count=enqueued)
 
             # ── Step 5: Mark completed ─────────────────────────────────────
+            ctx.record_event(
+                "scan_completed",
+                signals_created=int(run_result["signals_created"]),
+                findings_created=len(findings),
+                identity_score=identity_score,
+            )
+            await event_repo.bulk_record(scan_id, user_id, ctx.drain_events())
             await scan_repo.update_status(
                 scan_id=scan_id,
                 status=ScanStatus.COMPLETED,
@@ -120,7 +159,19 @@ async def run_scan_task(
                 findings_created=len(findings),
                 domains_run=list(run_result["domains_run"]),
             )
+            # Commit before sending — outbox rows are now durable.
             await session.commit()
+
+            # ── Step 5b: Process outbox (best-effort send) ─────────────────
+            # Failures here do not roll back the scan; rows stay pending
+            # for retry on the next scan cycle.
+            sent = await _process_notification_outbox(
+                user_id=user_id,
+                outbox_repo=outbox_repo,
+                signal_repo=signal_repo,
+            )
+            if sent > 0:
+                logger.info("scan.notifications_sent", scan_id=str(scan_id), count=sent)
 
             logger.info(
                 "scan.completed",
@@ -140,6 +191,8 @@ async def run_scan_task(
                 exc_info=True,
             )
             try:
+                ctx.record_event("scan_failed", error=str(exc)[:512])
+                await event_repo.bulk_record(scan_id, user_id, ctx.drain_events())
                 await scan_repo.update_status(
                     scan_id=scan_id,
                     status=ScanStatus.FAILED,
@@ -151,17 +204,21 @@ async def run_scan_task(
                 logger.error("scan.failed_to_mark_failed", error=str(inner_exc))
 
 
-async def _send_new_signal_notifications(
+async def _enqueue_signal_notifications(
     user_id: uuid.UUID,
     signals: list[Signal],
     asset_repo: AssetRepository,
-    signal_repo: SignalRepository,
-) -> None:
+    outbox_repo: NotificationOutboxRepository,
+) -> int:
     """
-    Sends breach alert emails for signals that have not yet been notified.
-    Uses signal.notified_at IS NULL to determine which signals are new.
-    Caps at 3 emails per scan to prevent flooding.
-    Updates notified_at on each signal after sending.
+    Write pending outbox rows for unnotified high/critical breach signals.
+
+    Rows are written within the caller's open transaction so they are
+    committed atomically with the scan state.  Email delivery happens
+    separately in _process_notification_outbox().
+
+    Caps at _MAX_OUTBOX_ENQUEUE_PER_SCAN rows per scan to prevent flooding.
+    Returns the number of rows enqueued.
     """
     unnotified_high = [
         s
@@ -169,27 +226,92 @@ async def _send_new_signal_notifications(
         if s.severity in ("critical", "high")
         and s.signal_type == "email_breached"
         and s.notified_at is None
-    ][:3]  # Hard cap at 3 notifications per scan
+    ][:_MAX_OUTBOX_ENQUEUE_PER_SCAN]
 
     if not unnotified_high:
-        return
+        return 0
 
     primary_asset = await asset_repo.get_primary_email(user_id)
     if not primary_asset:
-        return
+        return 0
 
+    enqueued = 0
     for signal in unnotified_high:
         evidence = signal.evidence or {}
-        await _email_service.send_breach_alert(
+        await outbox_repo.enqueue(
+            user_id=user_id,
+            signal_id=signal.signal_id,
             to_email=primary_asset.value,
-            monitored_email=signal.entity_value,
-            breach_title=evidence.get("breach_name", "Unknown breach"),
-            breach_date=evidence.get("breach_date", "Unknown date"),
-            data_classes=evidence.get("data_classes", []),
+            monitored_email=signal.entity_value or "",
+            template="breach_alert",
+            payload={
+                "breach_title": evidence.get("breach_name", "Unknown breach"),
+                "breach_date": evidence.get("breach_date", "Unknown date"),
+                "data_classes": evidence.get("data_classes", []),
+            },
         )
-        # Mark as notified so this signal is not emailed again on the next scan
-        signal.notified_at = datetime.now(UTC)
+        enqueued += 1
 
-    # Flush immediately so notified_at is persisted regardless of whether the
-    # caller's Step 5 commit succeeds.
-    await signal_repo.session.flush()
+    return enqueued
+
+
+async def _process_notification_outbox(
+    user_id: uuid.UUID,
+    outbox_repo: NotificationOutboxRepository,
+    signal_repo: SignalRepository,
+) -> int:
+    """
+    Send emails for pending outbox rows and mark them sent.
+
+    Failures are recorded per-row (attempt_count incremented, status set to
+    failed after MAX_OUTBOX_ATTEMPTS).  A failed send never rolls back the
+    scan or prevents other rows from being processed.
+
+    Returns the number of successfully sent notifications.
+    """
+    pending = await outbox_repo.get_pending_for_user(
+        user_id=user_id, limit=_MAX_OUTBOX_ENQUEUE_PER_SCAN
+    )
+    if not pending:
+        return 0
+
+    sent = 0
+    for row in pending:
+        try:
+            payload = row.payload or {}
+            await _email_service.send_breach_alert(
+                to_email=row.to_email,
+                monitored_email=row.monitored_email,
+                breach_title=payload.get("breach_title", "Unknown breach"),
+                breach_date=payload.get("breach_date", "Unknown date"),
+                data_classes=payload.get("data_classes", []),
+            )
+            await outbox_repo.mark_sent(row.id)
+
+            # Mark the originating signal as notified so it is not re-queued
+            # on the next scan cycle.
+            if row.signal_id is not None:
+                await signal_repo.mark_notified(str(row.signal_id))
+
+            await signal_repo.session.commit()
+            sent += 1
+
+        except Exception as exc:
+            await signal_repo.session.rollback()
+            logger.error(
+                "scan.notification_send_failed",
+                outbox_id=str(row.id),
+                error=str(exc),
+            )
+            try:
+                await outbox_repo.increment_attempt(row.id)
+                await signal_repo.session.commit()
+            except Exception as persist_exc:
+                await signal_repo.session.rollback()
+                logger.error(
+                    "scan.notification_failure_persist_failed",
+                    outbox_id=str(row.id),
+                    error=str(persist_exc),
+                )
+
+    return sent

@@ -5,7 +5,7 @@ from backend.app.core.config import settings
 from backend.app.core.enums import Confidence, EntityType, Severity
 from backend.app.core.logging import get_logger
 from backend.app.modules.base.service import BaseModuleService
-from backend.app.providers.base.exceptions import ProviderError
+from backend.app.providers.base.runner import run_provider
 from backend.app.providers.breach.hudson_rock.client import HudsonRockProvider
 from backend.app.signals.schemas import SignalCreate
 
@@ -22,26 +22,30 @@ class StealerLogExposureService(BaseModuleService):
         user_id: uuid.UUID,
         asset_id: uuid.UUID,
         asset_value: str,
+        ctx: object = None,
     ) -> list[SignalCreate]:
         signals: list[SignalCreate] = []
 
-        if not settings.hudson_rock_api_key:
-            return signals
-
-        provider = HudsonRockProvider(
-            api_key=settings.hudson_rock_api_key.get_secret_value()
-        )
-        try:
-            findings = await provider.get_compromised_data(email=asset_value)
-        except ProviderError as e:
-            logger.error(
-                "stealer_log_exposure.provider_failure",
-                error=str(e),
-                asset_value=asset_value,
+        hr_has_creds = bool(settings.hudson_rock_api_key)
+        if hr_has_creds:
+            provider = HudsonRockProvider(
+                api_key=settings.hudson_rock_api_key.get_secret_value()
             )
-            return signals
+        else:
+            provider = None
 
-        for finding in findings:
+        result = await run_provider(
+            provider_name="hudson_rock",
+            call=lambda: provider.get_compromised_data(email=asset_value),  # type: ignore[union-attr]
+            has_credentials=hr_has_creds,
+            user_id=user_id,
+            entity_type="email",
+            entity_value=asset_value,
+            ctx=ctx,
+            check_quota=True,
+        )
+
+        for finding in result.findings:
             raw = finding.get("raw", {})
             computer_name = (
                 raw.get("computer_name", "unknown")
@@ -74,9 +78,7 @@ class StealerLogExposureService(BaseModuleService):
                     entity_value=asset_value,
                     user_id=user_id,
                     severity=Severity.CRITICAL,
-                    confidence=(
-                        Confidence.HIGH
-                    ),  # TODO: calibrate after first 1000 scans
+                    confidence=Confidence.HIGH,
                     source=self.module_name,
                     provider="hudson_rock",
                     summary=(
@@ -91,8 +93,6 @@ class StealerLogExposureService(BaseModuleService):
                         "computer_name": computer_name,
                         "operating_system": operating_system,
                         "credentials_count": cred_count,
-                        # top_passwords intentionally omitted. Never log
-                        # password values.
                     },
                     tags=finding.get("tags", []) + ["stealer_log", "device_compromise"],
                     recommended_action=(
@@ -101,8 +101,6 @@ class StealerLogExposureService(BaseModuleService):
                         "Consider wiping and reinstalling the operating system. "
                         "Enable MFA on all critical accounts immediately."
                     ),
-                    # Dedup per infection event: same email + same upload date
-                    # = same signal.
                     source_ref=f"hudson_rock:{date_uploaded}",
                 )
             )

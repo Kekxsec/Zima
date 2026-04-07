@@ -5,9 +5,9 @@ from backend.app.core.config import settings
 from backend.app.core.enums import Confidence, EntityType, Severity
 from backend.app.core.logging import get_logger
 from backend.app.modules.base.service import BaseModuleService
-from backend.app.providers.base.exceptions import ProviderError
+from backend.app.providers.base.runner import run_provider
+from backend.app.providers.phone.callername.client import CallerNameProvider
 from backend.app.providers.phone.numverify.client import NumverifyProvider
-from backend.app.providers.phone.twilio.client import TwilioProvider
 from backend.app.signals.schemas import SignalCreate
 
 logger = get_logger(__name__)
@@ -16,9 +16,8 @@ logger = get_logger(__name__)
 class PhoneExposureService(BaseModuleService):
     """Validates and enriches PHONE_NUMBER assets.
 
-    Runs numverify (carrier/country/line-type) and Twilio Lookup
-    (carrier + caller name) against each verified phone number asset.
-    Emits an informational inventory signal per confirmed number.
+    Runs numverify (carrier/country/line-type) and CallerName
+    (reputation + geolocation) against each verified phone number asset.
     """
 
     module_name = "phone_exposure"
@@ -30,152 +29,147 @@ class PhoneExposureService(BaseModuleService):
         user_id: uuid.UUID,
         asset_id: uuid.UUID,
         asset_value: str,
+        ctx: object = None,
     ) -> list[SignalCreate]:
         signals: list[SignalCreate] = []
 
         # --- Numverify: validation + carrier + line type ---
-        if settings.numverify_api_key:
-            provider = NumverifyProvider(
-                api_key=settings.numverify_api_key.get_secret_value()
+        nv_has_creds = bool(settings.numverify_api_key)
+        if nv_has_creds:
+            nv_provider = NumverifyProvider(
+                api_key=settings.numverify_api_key.get_secret_value()  # type: ignore[union-attr]
             )
-            try:
-                findings = await provider.validate_phone(asset_value)
-            except ProviderError as e:
-                logger.error(
-                    "phone_exposure.numverify_failure",
-                    error=str(e),
-                    asset_value=asset_value,
+        else:
+            nv_provider = None
+
+        nv_result = await run_provider(
+            provider_name="numverify",
+            call=lambda: nv_provider.validate_phone(asset_value),  # type: ignore[union-attr]
+            has_credentials=nv_has_creds,
+            user_id=user_id,
+            entity_type="phone",
+            entity_value=asset_value,
+            ctx=ctx,
+        )
+
+        for finding in nv_result.findings:
+            raw = finding.get("raw", {})
+            country = raw.get("country", "") if isinstance(raw, dict) else ""
+            carrier = raw.get("carrier", "") if isinstance(raw, dict) else ""
+            line_type = raw.get("line_type", "") if isinstance(raw, dict) else ""
+
+            signals.append(
+                SignalCreate(
+                    signal_type="phone_number_validated",
+                    category="identity_inventory",
+                    entity_type=EntityType.PHONE_NUMBER,
+                    entity_id=asset_id,
+                    entity_value=asset_value,
+                    user_id=user_id,
+                    severity=Severity.INFO,
+                    confidence=Confidence.HIGH,
+                    source=self.module_name,
+                    provider="numverify",
+                    summary=(
+                        f"Phone {asset_value} validated: {line_type} in " f"{country}"
+                    ),
+                    details=finding.get("description"),
+                    evidence={
+                        "source_provider": "numverify",
+                        "country": country,
+                        "carrier": carrier,
+                        "line_type": line_type,
+                    },
+                    tags=["numverify", "phone", "passive"],
+                    recommended_action=(
+                        "No action required. This is an informational record of "
+                        "your registered phone number's carrier and region."
+                    ),
+                    source_ref=f"numverify:{asset_value}",
                 )
-                findings = []
+            )
 
-            for finding in findings:
-                raw = finding.get("raw", {})
-                country = raw.get("country", "") if isinstance(raw, dict) else ""
-                carrier = raw.get("carrier", "") if isinstance(raw, dict) else ""
-                line_type = raw.get("line_type", "") if isinstance(raw, dict) else ""
+        # --- CallerName: reputation + geolocation (US numbers only) ---
+        cn_provider = CallerNameProvider()
+        cn_result = await run_provider(
+            provider_name="callername",
+            call=lambda: cn_provider.get_caller_info(asset_value),
+            has_credentials=True,
+            user_id=user_id,
+            entity_type="phone",
+            entity_value=asset_value,
+            ctx=ctx,
+        )
 
+        for finding in cn_result.findings:
+            raw = finding.get("raw", {})
+            category = finding.get("category", "")
+            if not isinstance(raw, dict):
+                continue
+
+            if category == "reputation" and raw.get("bad_votes", 0) > raw.get(
+                "good_votes", 0
+            ):
                 signals.append(
                     SignalCreate(
-                        signal_type="phone_number_validated",
+                        signal_type="phone_flagged_unsafe",
+                        category="identity_exposure",
+                        entity_type=EntityType.PHONE_NUMBER,
+                        entity_id=asset_id,
+                        entity_value=asset_value,
+                        user_id=user_id,
+                        severity=Severity.MEDIUM,
+                        confidence=Confidence.MEDIUM,
+                        source=self.module_name,
+                        provider="callername",
+                        summary=(
+                            f"Phone {asset_value} flagged as unsafe by "
+                            "community votes on CallerName"
+                        ),
+                        details=finding.get("description"),
+                        evidence={
+                            "source_provider": "callername",
+                            "good_votes": raw.get("good_votes", 0),
+                            "bad_votes": raw.get("bad_votes", 0),
+                        },
+                        tags=["callername", "phone", "reputation", "passive"],
+                        recommended_action=(
+                            "Investigate whether this phone number has been "
+                            "associated with spam or fraud reports."
+                        ),
+                        source_ref=f"callername:reputation:{asset_value}",
+                    )
+                )
+            elif category == "identity_exposure" and raw.get("location"):
+                signals.append(
+                    SignalCreate(
+                        signal_type="phone_location_exposed",
                         category="identity_inventory",
                         entity_type=EntityType.PHONE_NUMBER,
                         entity_id=asset_id,
                         entity_value=asset_value,
                         user_id=user_id,
                         severity=Severity.INFO,
-                        confidence=Confidence.HIGH,
+                        confidence=Confidence.MEDIUM,
                         source=self.module_name,
-                        provider="numverify",
+                        provider="callername",
                         summary=(
-                            f"Phone {asset_value} validated: {line_type} in "
-                            f"{country}"
+                            f"Phone {asset_value} geolocated to "
+                            f"{raw.get('location', 'unknown')}"
                         ),
                         details=finding.get("description"),
                         evidence={
-                            "source_provider": "numverify",
-                            "country": country,
-                            "carrier": carrier,
-                            "line_type": line_type,
+                            "source_provider": "callername",
+                            "location": raw.get("location"),
+                            "phone": asset_value,
                         },
-                        tags=["numverify", "phone", "passive"],
+                        tags=["callername", "phone", "geolocation", "passive"],
                         recommended_action=(
-                            "No action required. This is an informational record of "
-                            "your registered phone number's carrier and region."
+                            "No action required. Location data is informational."
                         ),
-                        source_ref=f"numverify:{asset_value}",
+                        source_ref=f"callername:location:{asset_value}",
                     )
                 )
-
-        # --- Twilio: carrier lookup + caller name ---
-        if settings.twilio_account_sid and settings.twilio_auth_token:
-            provider_twilio = TwilioProvider(
-                account_sid=settings.twilio_account_sid.get_secret_value(),
-                auth_token=settings.twilio_auth_token.get_secret_value(),
-            )
-            try:
-                findings_twilio = await provider_twilio.lookup_phone(asset_value)
-            except ProviderError as e:
-                logger.error(
-                    "phone_exposure.twilio_failure",
-                    error=str(e),
-                    asset_value=asset_value,
-                )
-                findings_twilio = []
-
-            for finding in findings_twilio:
-                raw = finding.get("raw", {})
-                carrier_name = raw.get("carrier", "") if isinstance(raw, dict) else ""
-                caller_name = (
-                    raw.get("caller_name", "") if isinstance(raw, dict) else ""
-                )
-                line_type = raw.get("line_type", "") if isinstance(raw, dict) else ""
-
-                # Only emit a signal if we got meaningful data beyond basic validation
-                if caller_name:
-                    signals.append(
-                        SignalCreate(
-                            signal_type="phone_caller_name_exposed",
-                            category="identity_exposure",
-                            entity_type=EntityType.PHONE_NUMBER,
-                            entity_id=asset_id,
-                            entity_value=asset_value,
-                            user_id=user_id,
-                            severity=Severity.LOW,
-                            confidence=Confidence.HIGH,
-                            source=self.module_name,
-                            provider="twilio",
-                            summary=(
-                                f"Caller name '{caller_name}' is publicly "
-                                f"associated with {asset_value}"
-                            ),
-                            details=finding.get("description"),
-                            evidence={
-                                "source_provider": "twilio",
-                                "caller_name": caller_name,
-                                "carrier": carrier_name,
-                                "line_type": line_type,
-                            },
-                            tags=["twilio", "phone", "caller_name", "passive"],
-                            recommended_action=(
-                                "Your name is publicly visible in carrier CNAM records "
-                                "for this number. Contact your carrier to request CNAM "
-                                "suppression if you want to reduce personal exposure."
-                            ),
-                            source_ref=f"twilio:cnam:{asset_value}",
-                        )
-                    )
-                elif carrier_name:
-                    # Carrier-only finding: inventory signal, lower severity
-                    signals.append(
-                        SignalCreate(
-                            signal_type="phone_carrier_identified",
-                            category="identity_inventory",
-                            entity_type=EntityType.PHONE_NUMBER,
-                            entity_id=asset_id,
-                            entity_value=asset_value,
-                            user_id=user_id,
-                            severity=Severity.INFO,
-                            confidence=Confidence.HIGH,
-                            source=self.module_name,
-                            provider="twilio",
-                            summary=(
-                                f"Phone {asset_value}: {line_type} on "
-                                f"{carrier_name}"
-                            ),
-                            details=finding.get("description"),
-                            evidence={
-                                "source_provider": "twilio",
-                                "carrier": carrier_name,
-                                "line_type": line_type,
-                            },
-                            tags=["twilio", "phone", "passive"],
-                            recommended_action=(
-                                "No action required. Carrier and line-type data is "
-                                "informational."
-                            ),
-                            source_ref=f"twilio:carrier:{asset_value}",
-                        )
-                    )
 
         logger.info(
             "phone_exposure.completed",

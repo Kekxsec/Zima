@@ -1,4 +1,5 @@
 # backend/app/auth/utils.py
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import jwt
@@ -10,15 +11,21 @@ def create_access_token(subject: str, tier: str) -> str:
     """
     Creates a signed JWT access token.
     subject: str representation of user UUID
-    tier: user's current tier name (e.g. "core", "shield")
+    tier: user's current tier name (e.g. "core", "plus")
+
+    Each token receives a unique `jti` (JWT ID) so individual tokens can be
+    revoked via the TokenBlacklist without invalidating all sessions.
     """
     expire = datetime.now(UTC) + timedelta(
         minutes=settings.jwt_access_token_expire_minutes
     )
+    issued_at = datetime.now(UTC)
     payload = {
         "sub": subject,
         "tier": tier,
         "exp": expire,
+        "iat": issued_at,
+        "jti": str(uuid.uuid4()),
         "type": "access",
     }
     return jwt.encode(
@@ -28,11 +35,22 @@ def create_access_token(subject: str, tier: str) -> str:
     )
 
 
+def _coerce_timestamp(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        return value.astimezone(UTC)
+    if isinstance(value, int | float):
+        return datetime.fromtimestamp(float(value), tz=UTC)
+    return None
+
+
 def decode_access_token(token: str) -> dict[str, object]:
     """
     Decodes and validates a JWT access token.
     Raises ValueError if the token is invalid, expired, or wrong type.
     Never raises jwt.PyJWTError — always converts to ValueError.
+
+    Both `iat` and `exp` are coerced to timezone-aware datetimes so callers
+    can compute remaining TTL without re-parsing Unix timestamps.
     """
     try:
         payload: dict[str, object] = jwt.decode(
@@ -42,6 +60,12 @@ def decode_access_token(token: str) -> dict[str, object]:
         )
         if payload.get("type") != "access":
             raise ValueError("Token type is not 'access'")
+        issued_at = _coerce_timestamp(payload.get("iat"))
+        if issued_at is not None:
+            payload["iat"] = issued_at
+        expires_at = _coerce_timestamp(payload.get("exp"))
+        if expires_at is not None:
+            payload["exp"] = expires_at
         return payload
     except jwt.PyJWTError as exc:
         raise ValueError(f"Invalid token: {exc}") from exc

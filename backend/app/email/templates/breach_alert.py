@@ -1,4 +1,5 @@
 # backend/app/email/templates/breach_alert.py
+import html as _html
 
 
 def breach_alert_html(
@@ -8,8 +9,14 @@ def breach_alert_html(
     data_classes: list[str],
     dashboard_url: str = "https://yourdomain.com/dashboard",
 ) -> str:
+    safe_email = _html.escape(monitored_email)
+    safe_title = _html.escape(breach_title)
+    safe_date = _html.escape(breach_date)
+    # dashboard_url is always an internal value from settings.frontend_base_url,
+    # but escape it too for defence-in-depth.
+    safe_url = _html.escape(dashboard_url, quote=True)
     data_items = "".join(
-        f"<li style='margin-bottom:4px'>{d}</li>" for d in data_classes
+        f"<li style='margin-bottom:4px'>{_html.escape(d)}</li>" for d in data_classes
     )
     return f"""<!DOCTYPE html>
 <html>
@@ -27,21 +34,21 @@ def breach_alert_html(
         style="padding: 10px 12px; font-weight: 600; background: #f8fafc;
                width: 35%; border: 1px solid #e2e8f0;"
       >Email</td>
-      <td style="padding: 10px 12px; border: 1px solid #e2e8f0;">{monitored_email}</td>
+      <td style="padding: 10px 12px; border: 1px solid #e2e8f0;">{safe_email}</td>
     </tr>
     <tr>
       <td
         style="padding: 10px 12px; font-weight: 600; background: #f8fafc;
                border: 1px solid #e2e8f0;"
       >Breach</td>
-      <td style="padding: 10px 12px; border: 1px solid #e2e8f0;">{breach_title}</td>
+      <td style="padding: 10px 12px; border: 1px solid #e2e8f0;">{safe_title}</td>
     </tr>
     <tr>
       <td
         style="padding: 10px 12px; font-weight: 600; background: #f8fafc;
                border: 1px solid #e2e8f0;"
       >Date</td>
-      <td style="padding: 10px 12px; border: 1px solid #e2e8f0;">{breach_date}</td>
+      <td style="padding: 10px 12px; border: 1px solid #e2e8f0;">{safe_date}</td>
     </tr>
     <tr>
       <td
@@ -53,7 +60,7 @@ def breach_alert_html(
       </td>
     </tr>
   </table>
-  <a href="{dashboard_url}"
+  <a href="{safe_url}"
      style="display: inline-block; background: #0f172a; color: #ffffff;
             padding: 12px 24px; border-radius: 6px; text-decoration: none;
             font-weight: 600; margin-bottom: 32px;">

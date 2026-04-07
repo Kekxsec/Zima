@@ -25,6 +25,7 @@ dependencies = [
     "pyyaml>=6.0.1",
     "holehe>=1.61",
     "maigret>=0.5.0",
+    "cryptography>=42.0.0",
 ]
 
 [project.optional-dependencies]

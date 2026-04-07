@@ -277,6 +277,27 @@ export interface AssetOut {
   created_at: string
 }
 
+// ─── Integrations ────────────────────────────────────────────────────────────
+
+export interface Integration {
+  provider: string
+  connected: boolean
+  connected_at: string | null
+}
+
+export interface IntegrationListResponse {
+  integrations: Integration[]
+}
+
+export interface ConnectIntegrationPayload {
+  api_key: string
+}
+
+export interface IntegrationVerifyResponse {
+  valid: boolean
+  detail: string
+}
+
 // ─── API error ───────────────────────────────────────────────────────────────
 
 export interface ApiError {

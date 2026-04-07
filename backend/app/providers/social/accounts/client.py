@@ -1,13 +1,13 @@
 # backend/app/providers/social/accounts/client.py
 from __future__ import annotations
 
+import re
 from typing import Any
 
-# --- Migration notes (severity/inheritance stripped) ---
-# STRIPPED: severity=FindingSeverity.INFO
-# --- End migration notes ---
-
 # Adapted from SpiderFoot module: modules/sfp_accounts.py (MIT licensed)
+
+_MAX_USERNAME = 32
+_USERNAME_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
 
 WMNAME_URL = (
     "https://raw.githubusercontent.com/WebBreacher/WhatsMyName/main/wmn-data.json"
@@ -43,6 +43,10 @@ class AccountsProvider(BaseProviderClient):
             val = _value.strip()
             uname = val.split("@")[0] if _entity_type == "email" else val
             if not uname or len(uname) < 3:
+                continue
+            if len(uname) > _MAX_USERNAME:
+                continue
+            if not _USERNAME_RE.match(uname):
                 continue
             matched: list[str] = []
             for site in sites[:50]:  # limit to first 50 sites to avoid overload

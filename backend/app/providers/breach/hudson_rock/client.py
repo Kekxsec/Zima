@@ -1,13 +1,12 @@
 # backend/app/providers/breach/hudson_rock/client.py
 from __future__ import annotations
 
-# --- Migration notes (severity/inheritance stripped) ---
-# STRIPPED: severity=FindingSeverity.HIGH
-# --- End migration notes ---
 # Hudson Rock Cavalier API - stealer log intelligence
 import os
 import urllib.parse
 from typing import Any
+
+from pydantic import SecretStr
 
 from backend.app.providers.base.client import BaseProviderClient
 from backend.app.providers.base.exceptions import (
@@ -21,12 +20,12 @@ class HudsonRockProvider(BaseProviderClient):
 
     def __init__(self, api_key: str = "", timeout_seconds: int = 15) -> None:
         super().__init__(timeout_seconds=timeout_seconds)
-        self._api_key = api_key
+        self._api_key: SecretStr = SecretStr(api_key)
 
     async def get_compromised_data(
         self, *, domain: str | None = None, email: str | None = None
     ) -> list[dict[str, Any]]:
-        api_key = str(self._api_key).strip()
+        api_key = self._api_key.get_secret_value().strip()
         if not api_key:
             raise ProviderError(
                 message="Hudson Rock API key is required",

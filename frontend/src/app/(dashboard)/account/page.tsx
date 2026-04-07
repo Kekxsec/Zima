@@ -235,6 +235,17 @@ function DataSection({ onDeleteAccount }: { onDeleteAccount: () => void }) {
 
         <Separator />
 
+        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+          <a href="/privacy" className="hover:text-foreground transition-colors underline underline-offset-2">
+            Privacy Policy
+          </a>
+          <a href="/terms" className="hover:text-foreground transition-colors underline underline-offset-2">
+            Terms of Service
+          </a>
+        </div>
+
+        <Separator />
+
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm font-medium text-red-600">Delete account</p>

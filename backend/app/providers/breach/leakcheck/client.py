@@ -1,12 +1,11 @@
 # backend/app/providers/breach/leakcheck/client.py
 from __future__ import annotations
 
-# --- Migration notes (severity/inheritance stripped) ---
-# STRIPPED: severity=FindingSeverity.MEDIUM
-# --- End migration notes ---
 # LeakCheck.io - email and username breach lookup
 import urllib.parse
 from typing import Any
+
+from pydantic import SecretStr
 
 from backend.app.providers.base.client import BaseProviderClient
 from backend.app.providers.base.exceptions import (
@@ -21,12 +20,12 @@ class LeakCheckProvider(BaseProviderClient):
 
     def __init__(self, api_key: str = "", timeout_seconds: int = 15) -> None:
         super().__init__(timeout_seconds=timeout_seconds)
-        self._api_key = api_key
+        self._api_key: SecretStr = SecretStr(api_key)
 
     async def check_leaks(
         self, *, email: str | None = None, username: str | None = None
     ) -> list[dict[str, Any]]:
-        api_key = str(self._api_key).strip()
+        api_key = self._api_key.get_secret_value().strip()
         findings: list[dict[str, Any]] = []
 
         _inputs: list[tuple[str, str]] = []

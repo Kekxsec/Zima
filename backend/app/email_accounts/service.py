@@ -140,11 +140,12 @@ class AccountDiscoveryService:
 
             source_type = _classify_subject(msg.subject)
 
+            # Newsletters are not account evidence — handled by pre-pass
+            if source_type == DiscoveredAccountSourceType.NEWSLETTER:
+                continue
+
             # Only carry forward messages that look account-related
             if source_type == DiscoveredAccountSourceType.OTHER:
-                if source_type == DiscoveredAccountSourceType.NEWSLETTER:
-                    # Newsletters are not account evidence — skip
-                    continue
                 # Generic "other" — keep only if we have a registry match
                 registry_entry = await self._registry.find_by_domain(domain)
                 if registry_entry is None:

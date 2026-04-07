@@ -63,7 +63,7 @@ export default function ResultsPage() {
 
   const { data: scoreData, isLoading: scoreLoading } = useQuery({
     queryKey: ["onboarding-scores"],
-    queryFn: () => api.get<ScoreListResponse>("/scores/"),
+    queryFn: () => api.get<ScoreListResponse>("/scores"),
     retry: 2,
   })
 

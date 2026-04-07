@@ -83,9 +83,7 @@ export default function ScanPage() {
   const [visibleStep, setVisibleStep] = useState(0)
   const [scan, setScan] = useState<Scan | null>(null)
 
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const stepTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const hasFiredRef = useRef(false)
 
   // Auto-advance through steps 0 → AUTO_ADVANCE_MAX at STEP_INTERVAL_MS each.
   // Stops before the scoring step so it doesn't falsely imply completion.
@@ -107,12 +105,12 @@ export default function ScanPage() {
     }
   }, [scanState])
 
-  // Trigger scan then poll
+  // Trigger scan then poll.
+  // StrictMode-safe: no hasFiredRef guard. The cleanup `cancelled` flag
+  // aborts the first mount's in-flight work; the second mount retries cleanly.
   useEffect(() => {
-    if (hasFiredRef.current) return
-    hasFiredRef.current = true
-
     let cancelled = false
+    let pollInterval: ReturnType<typeof setInterval> | null = null
 
     async function triggerAndPoll() {
       try {
@@ -126,12 +124,13 @@ export default function ScanPage() {
             if (u.trim()) declarations.push({ entity_type: "username", value: u.trim() })
           }
           await Promise.allSettled(
-            declarations.map((d) => api.post<AssetOut>("/assets/", d)),
+            declarations.map((d) => api.post<AssetOut>("/assets", d)),
           )
         }
+        if (cancelled) return
 
         // Trigger scan
-        const triggered = await api.post<Scan>("/scans/", { tier: "standard" })
+        const triggered = await api.post<Scan>("/scans", { tier: "standard" })
         if (cancelled) return
 
         setScanId(triggered.id)
@@ -145,25 +144,25 @@ export default function ScanPage() {
         }
 
         // Poll every 4 s — use the individual endpoint so stale detection fires
-        pollRef.current = setInterval(async () => {
+        pollInterval = setInterval(async () => {
           try {
             const latest = await api.get<Scan>(`/scans/${triggered.id}`)
             if (cancelled) return
             setScan(latest)
 
             if (latest.status === "completed") {
-              clearInterval(pollRef.current!)
+              clearInterval(pollInterval!)
               setScanState("completed")
               setCompleted(true)
             } else if (latest.status === "failed") {
-              clearInterval(pollRef.current!)
+              clearInterval(pollInterval!)
               setScanState("failed")
               setError(latest.error_detail ?? "Scan failed — please try again.")
             }
           } catch (pollErr) {
             if (cancelled) return
             if (pollErr instanceof ApiRequestError && (pollErr.status === 401 || pollErr.status === 403)) {
-              clearInterval(pollRef.current!)
+              clearInterval(pollInterval!)
               setScanState("failed")
               setError("Your session expired. Please sign in again.")
             }
@@ -180,7 +179,7 @@ export default function ScanPage() {
 
     return () => {
       cancelled = true
-      clearInterval(pollRef.current!)
+      if (pollInterval) clearInterval(pollInterval)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

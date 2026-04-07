@@ -68,6 +68,13 @@ export const api = {
       ...init,
     })
   },
+  put<T>(path: string, body?: unknown, init?: RequestInit) {
+    return request<T>(path, {
+      method: "PUT",
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      ...init,
+    })
+  },
   patch<T>(path: string, body?: unknown, init?: RequestInit) {
     return request<T>(path, {
       method: "PATCH",

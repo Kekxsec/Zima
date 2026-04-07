@@ -1,10 +1,19 @@
 # backend/app/api/v1/auth.py
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from datetime import UTC, datetime
 
-from backend.app.api.dependencies import get_asset_service, get_auth_service
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from backend.app.api.dependencies import (
+    get_asset_service,
+    get_auth_service,
+    get_db_session,
+)
 from backend.app.assets.service import AssetService
+from backend.app.auth.blacklist import token_blacklist
 from backend.app.auth.schemas import OTPRequest, OTPVerify
 from backend.app.auth.service import AuthService
+from backend.app.auth.utils import decode_access_token
 from backend.app.core.config import settings
 from backend.app.core.exceptions import (
     AuthTokenExpiredException,
@@ -12,6 +21,7 @@ from backend.app.core.exceptions import (
 )
 from backend.app.core.logging import get_logger
 from backend.app.core.rate_limit import get_real_ip, limiter
+from backend.app.db.repositories.users import UserRepository
 from backend.app.email.service import EmailService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -108,10 +118,41 @@ async def verify_otp(
 
 
 @router.post("/logout", status_code=200)
-async def logout(response: Response) -> dict[str, str]:
+async def logout(
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db_session),
+) -> dict[str, str]:
     """Clears the session cookie.
 
     No auth required; safe to call when already signed out.
     """
+    token = request.cookies.get(_COOKIE_NAME)
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+
+    if token:
+        try:
+            payload = decode_access_token(token)
+            # Primary revocation: add JTI to Redis blacklist with TTL = remaining
+            # token lifetime so the entry expires automatically.
+            jti = payload.get("jti")
+            exp = payload.get("exp")
+            if isinstance(jti, str) and jti and isinstance(exp, datetime):
+                await token_blacklist.revoke(jti, exp)
+            # Fallback revocation: update session_revoked_at for tokens that
+            # predate JTI support or when Redis is unavailable.
+            user = await UserRepository(db).get_active_by_id(str(payload["sub"]))
+            if user is not None:
+                issued_at = payload.get("iat")
+                user.session_revoked_at = (
+                    issued_at if isinstance(issued_at, datetime) else datetime.now(UTC)
+                )
+                await db.commit()
+        except (TypeError, ValueError):
+            pass
+
     response.delete_cookie(key=_COOKIE_NAME, path="/")
     return {"message": "Signed out."}

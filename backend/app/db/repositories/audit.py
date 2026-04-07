@@ -1,7 +1,7 @@
 # backend/app/db/repositories/audit.py
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.db.models.audit import AuditEvent
@@ -46,3 +46,13 @@ class AuditRepository:
             .offset(offset)
         )
         return list(result.scalars().all())
+
+    async def anonymise_for_user(self, user_id: uuid.UUID) -> None:
+        """
+        GDPR erasure: null user_id on all audit events for this user.
+        Rows are retained for security and billing audit purposes but are
+        no longer linkable to the deleted account.
+        """
+        await self.session.execute(
+            update(AuditEvent).where(AuditEvent.user_id == user_id).values(user_id=None)
+        )

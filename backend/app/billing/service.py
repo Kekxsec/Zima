@@ -15,7 +15,8 @@ if settings.stripe_secret_key:
 
 TIER_TO_PRICE: dict[str, str | None] = {
     "core": None,  # Free
-    "shield": settings.stripe_price_shield_monthly,
+    "plus": settings.stripe_price_shield_monthly,
+    "shield": settings.stripe_price_shield_monthly,  # legacy alias
     "pro": settings.stripe_price_pro_monthly,
 }
 

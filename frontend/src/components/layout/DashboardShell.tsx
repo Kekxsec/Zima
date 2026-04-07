@@ -17,6 +17,7 @@ import {
   Menu,
   X,
   ChevronRight,
+  Plug,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -34,6 +35,7 @@ const NAV_MAIN = [
 ]
 
 const NAV_SETTINGS = [
+  { label: "Integrations", href: "/integrations", icon: Plug },
   { label: "Account", href: "/account", icon: User },
 ]
 

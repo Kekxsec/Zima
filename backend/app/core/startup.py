@@ -30,6 +30,39 @@ def check_environment() -> None:
         )
 
 
+def check_tls_in_connection_strings() -> None:
+    """
+    Enforce TLS on all external connection strings in production.
+
+    - DATABASE_URL must contain sslmode=require or ?ssl=require
+    - REDIS_URL must use the rediss:// (TLS) scheme
+
+    Fails hard at startup so misconfigured deployments never receive traffic.
+    """
+    if not settings.is_production:
+        return
+
+    errors: list[str] = []
+
+    db_url = settings.database_url
+    if "sslmode=require" not in db_url and "ssl=require" not in db_url:
+        errors.append("DATABASE_URL must include sslmode=require for production TLS")
+
+    redis_url = settings.redis_url
+    if not redis_url.startswith("rediss://"):
+        errors.append("REDIS_URL must use rediss:// scheme for production TLS")
+
+    if errors:
+        for e in errors:
+            logger.error("startup.tls_check_failed", message=e)
+        raise RuntimeError(
+            "TLS enforcement failed — insecure connection strings detected:\n"
+            + "\n".join(errors)
+        )
+
+    logger.info("startup.tls_ok")
+
+
 async def check_redis() -> None:
     """
     Verify Redis is reachable before accepting traffic.

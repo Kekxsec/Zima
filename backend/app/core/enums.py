@@ -36,6 +36,19 @@ class Tier(StrEnum):
     BUSINESS = "business"
 
 
+_TIER_ALIASES: dict[str, Tier] = {
+    "shield": Tier.PLUS,
+}
+
+
+def parse_tier(value: str) -> Tier:
+    """Parse persisted tier values, including legacy aliases."""
+    alias = _TIER_ALIASES.get(value)
+    if alias is not None:
+        return alias
+    return Tier(value)
+
+
 class EntityType(StrEnum):
     EMAIL = "email"
     USERNAME = "username"

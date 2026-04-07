@@ -72,3 +72,7 @@ class AuthTokenRepository:
             delete(AuthToken).where(AuthToken.expires_at < cutoff)
         )
         return int(result.rowcount)  # type: ignore[attr-defined]
+
+    async def delete_for_email(self, email: str) -> None:
+        """Hard-deletes all tokens for an email address. Used by GDPR erasure."""
+        await self.session.execute(delete(AuthToken).where(AuthToken.email == email))

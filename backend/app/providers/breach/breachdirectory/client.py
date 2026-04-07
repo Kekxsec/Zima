@@ -1,13 +1,12 @@
 # backend/app/providers/breach/breachdirectory/client.py
 from __future__ import annotations
 
-# --- Migration notes (severity/inheritance stripped) ---
-# STRIPPED: severity=FindingSeverity.HIGH if has_plaintext else FindingSeverity.MEDIUM
-# --- End migration notes ---
 # BreachDirectory API - breach lookup with password hash data via RapidAPI
 import re
 import urllib.parse
 from typing import Any
+
+from pydantic import SecretStr
 
 _RAPIDAPI_HOST = "breachdirectory.p.rapidapi.com"
 _HASH_RE = re.compile(r"^[0-9a-fA-F]{32,}$")
@@ -38,12 +37,12 @@ class BreachDirectoryProvider(BaseProviderClient):
 
     def __init__(self, api_key: str = "", timeout_seconds: int = 15) -> None:
         super().__init__(timeout_seconds=timeout_seconds)
-        self._api_key = api_key
+        self._api_key: SecretStr = SecretStr(api_key)
 
     async def search_breaches(
         self, *, email: str | None = None, username: str | None = None
     ) -> list[dict[str, Any]]:
-        api_key = str(self._api_key).strip()
+        api_key = self._api_key.get_secret_value().strip()
         if not api_key:
             raise ProviderError(
                 message="BreachDirectory RapidAPI key is required",

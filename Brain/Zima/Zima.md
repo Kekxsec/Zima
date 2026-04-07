@@ -40,10 +40,10 @@ updated: 2026-03-21
 - [[Business/threat-model]] — threat actors, attack vectors, mitigations
 
 ### Build
-- [[MVP Master]] — all stages 0–8, current status, key decisions log
-- [[MVP Next Steps]] — current focus, open questions, code quality state
+- [[MVP Master]] — all stages 0–10, current status, key decisions log
+- [[MVP Build/stage-10-16-implementation-plan|Stage 10–16 Implementation Plan]] — current provider scope and implementation stages
 - [[MVP Build/pre-stage-06-signal-registry-handoff|Pre-Stage-6 Handoff]] — research synthesis and implementation bridge before Stage 6
-- [[MVP - Road to Launch]] — post-Stage-8 roadmap
+- [[MVP Build/mvp-completion-review-2026-04-01|MVP Completion Review]] — code-vs-plan review (2026-04-01)
 
 ### Architecture
 - [[Architecture/System Architecture]] — pipeline, layers, asset graph

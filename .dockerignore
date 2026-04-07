@@ -1,0 +1,25 @@
+.git
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov/
+
+# Frontend — not needed in backend image
+frontend/node_modules
+frontend/.next
+
+# Local config
+.env
+.env.*
+!.env.example
+
+# Docs / tooling
+*.md
+.github/
+Brain/

@@ -8,7 +8,7 @@ import urllib.parse
 # --- End migration notes ---
 # Extracted/adapted from SpiderFoot module: modules/sfp_archiveorg.py (MIT licensed)
 # Copyright (c) Steve Micallef.
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from backend.app.providers.base.client import BaseProviderClient
@@ -87,7 +87,7 @@ class ArchiveOrgProvider(BaseProviderClient):
 
     @staticmethod
     def _timestamp_for_days(days_back: int) -> str:
-        return (datetime.utcnow() - timedelta(days=days_back)).strftime("%Y%m%d")
+        return (datetime.now(UTC) - timedelta(days=days_back)).strftime("%Y%m%d")
 
     @staticmethod
     def _extract_snapshot_url(payload: dict) -> str:

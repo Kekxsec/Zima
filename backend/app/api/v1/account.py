@@ -39,7 +39,7 @@ async def get_audit_log(
     return {"events": events, "limit": limit, "offset": offset}
 
 
-@router.delete("/", status_code=202)
+@router.delete("", status_code=202)
 async def delete_account(
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),

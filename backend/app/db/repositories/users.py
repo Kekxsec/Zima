@@ -51,6 +51,19 @@ class UserRepository:
             .values(deleted_at=datetime.now(UTC), is_active=False)
         )
 
+    async def update_tier_by_stripe_customer_id(
+        self,
+        stripe_customer_id: str,
+        tier: str,
+        stripe_subscription_id: str | None,
+    ) -> None:
+        """Updates user tier and subscription ID by Stripe customer ID."""
+        await self.session.execute(
+            update(User)
+            .where(User.stripe_customer_id == stripe_customer_id)
+            .values(tier=tier, stripe_subscription_id=stripe_subscription_id)
+        )
+
     async def scrub_pii(self, user_id: uuid.UUID) -> None:
         """Null out PII while keeping the row for billing and audit integrity."""
         await self.session.execute(

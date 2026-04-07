@@ -20,7 +20,7 @@ class SuppressRequest(BaseModel):
     reason: str | None = Field(None, max_length=256)
 
 
-@router.get("/")
+@router.get("")
 async def get_findings(
     filter_status: Literal["open", "suppressed", "resolved"] = Query(default="open"),
     limit: int = Query(default=20, ge=1, le=100),

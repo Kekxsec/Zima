@@ -9,6 +9,8 @@ from backend.app.api.v1 import (
     email_accounts,
     findings,
     health,
+    imports,
+    integrations,
     legal,
     scans,
     scores,
@@ -35,3 +37,5 @@ api_router.include_router(account.router, prefix="/api/v1")
 api_router.include_router(billing.router, prefix="/api/v1")
 api_router.include_router(legal.router, prefix="/api/v1")
 api_router.include_router(email_accounts.router, prefix="/api/v1")
+api_router.include_router(imports.router, prefix="/api/v1")
+api_router.include_router(integrations.router, prefix="/api/v1")

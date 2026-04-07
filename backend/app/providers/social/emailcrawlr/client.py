@@ -19,8 +19,8 @@ class EmailcrawlrProvider(BaseProviderClient):
     base_url = "https://api.emailcrawlr.com/v2"
 
     def __init__(self, api_key: str = "", timeout_seconds: int = 15):
+        super().__init__(timeout_seconds=timeout_seconds)
         self._api_key = api_key
-        self._timeout_seconds = timeout_seconds
 
     async def search_emails(
         self, *, domain: str | None = None, email: str | None = None
@@ -43,7 +43,7 @@ class EmailcrawlrProvider(BaseProviderClient):
                 continue
             val = _value.strip()
             url = f"{self.base_url}/domain?{urllib.parse.urlencode({'domain': val})}"
-            data = self._fetch(url, headers)
+            data = await self._fetch(url, headers)
             emails = data.get("emails", []) if isinstance(data, dict) else []
             if not isinstance(emails, list):
                 continue
@@ -76,6 +76,23 @@ class EmailcrawlrProvider(BaseProviderClient):
                     )
                 )
         return findings
+
+    async def get_email(self, email: str) -> dict[str, Any]:
+        """Fetch rich profile data for a specific email address.
+
+        GET /v2/{email}
+        Returns the full JSON body or {} if not found (404).
+        Fields: email, personal, domain, verified, linkedin, twitter, name,
+                references, job_title, location, numbers.
+        """
+        api_key = str(self._api_key).strip()
+        if not api_key:
+            raise ProviderError(
+                message="EmailCrawlr API key is required", retryable=False
+            )
+        headers = {"Accept": "application/json", "x-api-key": api_key}
+        url = f"{self.base_url}/{urllib.parse.quote(email.strip(), safe='')}"
+        return await self._fetch(url, headers)
 
     async def _fetch(self, url: str, headers: dict) -> dict:
         return await self._get(

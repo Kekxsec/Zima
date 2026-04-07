@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     def validate_production_settings(self) -> "Settings":
         """Guard against unsafe defaults reaching production."""
         if self.app_env == "production":
+            if self.debug:
+                raise ValueError(
+                    "DEBUG must be False in production. "
+                    "Set APP_ENV=production only when DEBUG is not set or is false."
+                )
+
             for origin in self.cors_allowed_origins:
                 if "localhost" in origin or "127.0.0.1" in origin:
                     raise ValueError(
@@ -64,6 +70,27 @@ class Settings(BaseSettings):
                         "permitted in production. Set CORS_ALLOWED_ORIGINS to your "
                         "production frontend URL(s)."
                     )
+
+            # TLS enforcement — fail closed in production.
+            if self.require_tls_postgres and "sslmode=" not in self.database_url:
+                raise ValueError(
+                    "Production database_url must include sslmode= parameter "
+                    "(e.g. sslmode=require). Set REQUIRE_TLS_POSTGRES=false only "
+                    "for trusted private networks with documented risk acceptance."
+                )
+            if self.require_tls_redis and not self.redis_url.startswith("rediss://"):
+                raise ValueError(
+                    "Production redis_url must use rediss:// (TLS). "
+                    "Set REQUIRE_TLS_REDIS=false only for trusted private networks "
+                    "with documented risk acceptance."
+                )
+
+            # Field encryption should be configured in production.
+            if self.field_encryption_key is None:
+                raise ValueError(
+                    "FIELD_ENCRYPTION_KEY must be set in production. "
+                    'Generate: python -c "import secrets; print(secrets.token_hex(32))"'
+                )
         return self
 
     # Frontend
@@ -80,6 +107,9 @@ class Settings(BaseSettings):
     stripe_price_shield_monthly: str | None = None
     stripe_price_pro_monthly: str | None = None
 
+    # Providers — threat intelligence
+    virustotal_api_key: SecretStr | None = None
+
     # Providers — Wave 0
     hibp_api_key: SecretStr | None = None
 
@@ -90,12 +120,31 @@ class Settings(BaseSettings):
     breachdirectory_rapidapi_key: SecretStr | None = None
     hudson_rock_api_key: SecretStr | None = None
     emailrep_api_key: SecretStr | None = None
-    epieos_api_key: SecretStr | None = None
+
+    # Providers — identity enrichment (Wave 2)
+    emailcrawlr_api_key: SecretStr | None = None
+    gravatar_api_key: SecretStr | None = None
+    emailformat_api_key: SecretStr | None = None
+
+    # Providers — dark web intelligence
+    intelx_api_key: SecretStr | None = None
+
+    # Providers — infrastructure intelligence
+    leakix_api_key: SecretStr | None = None
 
     # Providers — phone intelligence
     numverify_api_key: SecretStr | None = None
     twilio_account_sid: SecretStr | None = None
     twilio_auth_token: SecretStr | None = None
+
+    # Field-level encryption (envelope encryption with AES-256-GCM)
+    # Generate: python -c "import secrets; print(secrets.token_hex(32))"
+    field_encryption_key: SecretStr | None = None
+
+    # TLS enforcement — production requires encrypted transport by default.
+    # Set to False only for local development without TLS-enabled services.
+    require_tls_postgres: bool = True
+    require_tls_redis: bool = True
 
     # Tier
     default_tier: str = "core"

@@ -1,12 +1,13 @@
 # backend/app/modules/identity/alias_correlation/service.py
 import uuid
 
-from backend.app.core.config import settings
 from backend.app.core.enums import Confidence, EntityType, Severity
 from backend.app.core.logging import get_logger
 from backend.app.modules.base.service import BaseModuleService
 from backend.app.providers.base.exceptions import ProviderError
-from backend.app.providers.social.epieos.client import EpieosProvider
+from backend.app.providers.base.runner import run_provider
+from backend.app.providers.social.emailformat.client import EmailformatProvider
+from backend.app.providers.tools.whatsmyname.client import WhatsmyNameProvider
 from backend.app.signals.schemas import SignalCreate
 
 logger = get_logger(__name__)
@@ -22,36 +23,56 @@ class AliasCorrelationService(BaseModuleService):
         user_id: uuid.UUID,
         asset_id: uuid.UUID,
         asset_value: str,
+        ctx: object = None,
     ) -> list[SignalCreate]:
         signals: list[SignalCreate] = []
 
-        if not settings.epieos_api_key:
+        # --- EmailFormat: domain email-pattern enrichment (enrichment only) ---
+        domain = asset_value.split("@", 1)[-1] if "@" in asset_value else ""
+        emailformat_formats: list[dict] = []
+        if domain:
+            ef = EmailformatProvider()
+            try:
+                emailformat_formats = await ef.get_formats(domain)
+            except ProviderError as e:
+                logger.error(
+                    "alias_correlation.emailformat_failure",
+                    error=str(e),
+                    domain=domain,
+                )
+
+        # --- WhatsmyName: cross-platform username enumeration for alias linkage ---
+        username_prefix = asset_value.split("@", 1)[0]
+        if not username_prefix:
             return signals
 
-        epieos = EpieosProvider(api_key=settings.epieos_api_key.get_secret_value())
-        try:
-            findings = await epieos.validate_email(asset_value)
-        except ProviderError as e:
-            logger.error(
-                "alias_correlation.provider_failure",
-                error=str(e),
-                asset_value=asset_value,
-            )
-            return signals
+        wmn_provider = WhatsmyNameProvider()
+        wmn_result = await run_provider(
+            provider_name="tool_whatsmyname",
+            call=lambda: wmn_provider.search_username(username_prefix),
+            has_credentials=True,
+            user_id=user_id,
+            entity_type="email",
+            entity_value=asset_value,
+            ctx=ctx,
+        )
 
-        for finding in findings:
+        for finding in wmn_result.findings:
             raw = finding.get("raw", {})
-            if not isinstance(raw, dict):
-                continue
+            platform = (
+                raw.get("site", "") if isinstance(raw, dict) else ""
+            ) or finding.get("title", "").replace("Username found: ", "")
+            profile_url = raw.get("url") if isinstance(raw, dict) else None
 
-            # Emit alias_exposure_detected when a real name is linked to the
-            # email via a confirmed Google account.
-            if "google" not in finding.get("title", "").lower():
-                continue
-
-            alias_name = str(raw.get("name", "")).strip()
-            if not alias_name:
-                continue
+            evidence: dict = {
+                "source_provider": "tool_whatsmyname",
+                "username": username_prefix,
+                "platform": platform,
+                "profile_url": profile_url,
+                "alias_detected": True,
+            }
+            if emailformat_formats:
+                evidence["emailformat_patterns"] = emailformat_formats
 
             signals.append(
                 SignalCreate(
@@ -61,27 +82,23 @@ class AliasCorrelationService(BaseModuleService):
                     entity_id=asset_id,
                     entity_value=asset_value,
                     user_id=user_id,
-                    severity=Severity.LOW,  # TODO: calibrate after first 1000 scans
-                    confidence=(
-                        Confidence.MEDIUM
-                    ),  # TODO: calibrate after first 1000 scans
+                    severity=Severity.LOW,
+                    confidence=Confidence.HIGH,
                     source=self.module_name,
-                    provider="epieos",
+                    provider="tool_whatsmyname",
                     summary=(
-                        f"Alias '{alias_name}' linked to this identity via "
-                        "Google account"
+                        f"Username alias '{username_prefix}' found on "
+                        f"{platform} — identity linkage risk"
                     ),
                     details=finding.get("description"),
-                    evidence={
-                        "source_provider": "epieos",
-                        "alias_email": alias_name,  # real name exposed as alias
-                        "platform": "Google",
-                    },
-                    tags=["alias_exposure", "epieos", "identity_linkage"],
+                    evidence=evidence,
+                    tags=["alias_exposure", "whatsmyname", "username_linkage"],
                     recommended_action=(
-                        "Review alias email and linked accounts. "
-                        "Check if alias appears in any breach records."
+                        "Review linked accounts. "
+                        "Consider using separate usernames per platform "
+                        "to reduce identity correlation risk."
                     ),
+                    source_ref=f"whatsmyname:{platform}",
                 )
             )
 

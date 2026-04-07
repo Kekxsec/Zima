@@ -2,17 +2,19 @@
 """
 Email Account Identifier endpoints.
 
-POST   /email-accounts/uploads          — Upload an mbox file (rate-limited)
-GET    /email-accounts/uploads          — List uploads for the current user
-GET    /email-accounts/uploads/{id}     — Upload status / progress
-GET    /email-accounts/accounts         — Paginated list of discovered accounts
-PATCH  /email-accounts/accounts/{id}/reviewed — Mark account as reviewed
-GET    /email-accounts/export           — Download all accounts as CSV
+POST /email-accounts/uploads                  — Upload an mbox file (rate-limited)
+GET  /email-accounts/uploads                  — List uploads for the current user
+GET  /email-accounts/uploads/{id}             — Upload status / progress
+GET  /email-accounts/accounts                 — Paginated list of discovered accounts
+PATCH /email-accounts/accounts/{id}/reviewed  — Mark account as reviewed
+POST /email-accounts/accounts/{id}/alias      — Create email alias for an account
+GET  /email-accounts/export                   — Download all accounts as CSV
 """
 
 import csv
 import hashlib
 import io
+import re
 import uuid
 from datetime import UTC, datetime
 
@@ -27,24 +29,61 @@ from fastapi import (
     status,
 )
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.dependencies import get_current_user, get_db_session
 from backend.app.auth.models import User
+from backend.app.core.crypto import CryptoError, decrypt_field
+from backend.app.core.enums import Tier, parse_tier
 from backend.app.core.rate_limit import limiter
 from backend.app.db.models.email_accounts import MboxUploadStatus
+from backend.app.db.models.integrations import IntegrationProvider
 from backend.app.db.repositories.assets import AssetRepository
 from backend.app.db.repositories.discovered_accounts import DiscoveredAccountRepository
 from backend.app.db.repositories.mbox_uploads import MboxUploadRepository
 from backend.app.db.repositories.signals import SignalRepository
+from backend.app.db.repositories.user_integrations import UserIntegrationRepository
 from backend.app.email_accounts.priority import AccountPriority
 from backend.app.email_accounts.priority import score as priority_score
 from backend.app.jobs.mbox_processor import process_mbox_upload
+from backend.app.providers.actions.addy_io.client import AddyIoProvider
+from backend.app.providers.actions.simplelogin.client import SimpleLoginProvider
+from backend.app.providers.base.exceptions import ProviderAuthError, ProviderError
 
 router = APIRouter(prefix="/email-accounts", tags=["email-accounts"])
 
 # Max mbox size: 100 MB
 _MAX_UPLOAD_BYTES: int = 100 * 1024 * 1024
+_UPLOAD_CHUNK_BYTES: int = 1024 * 1024
+
+_EMAIL_ACCOUNTS_ALLOWED_TIERS: frozenset[Tier] = frozenset(
+    {Tier.PLUS, Tier.PRO, Tier.BUSINESS}
+)
+
+
+def _require_email_accounts_tier(current_user: User) -> None:
+    if parse_tier(current_user.tier) not in _EMAIL_ACCOUNTS_ALLOWED_TIERS:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This feature requires a paid plan.",
+        )
+
+
+async def _read_upload_limited(file: UploadFile, max_bytes: int) -> bytes:
+    """Read an upload incrementally and stop once the size cap is exceeded."""
+    data = bytearray()
+    while True:
+        chunk = await file.read(_UPLOAD_CHUNK_BYTES)
+        if not chunk:
+            break
+        data.extend(chunk)
+        if len(data) > max_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"File exceeds the {max_bytes // (1024 * 1024)} MB limit.",
+            )
+    return bytes(data)
 
 
 # ---------------------------------------------------------------------------
@@ -69,6 +108,7 @@ async def upload_mbox(
     - Idempotent: same file hash returns the existing upload record.
     - Raw bytes are processed in a background task and NEVER persisted to disk.
     """
+    _require_email_accounts_tier(current_user)
 
     # Validate content type loosely. Accept application/mbox, text/plain,
     # and application/octet-stream.
@@ -84,12 +124,7 @@ async def upload_mbox(
             detail="Expected an mbox file.",
         )
 
-    data = await file.read()
-    if len(data) > _MAX_UPLOAD_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File exceeds the {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit.",
-        )
+    data = await _read_upload_limited(file, _MAX_UPLOAD_BYTES)
     if not data:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Empty file."
@@ -149,6 +184,7 @@ async def list_uploads(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, object]:
+    _require_email_accounts_tier(current_user)
     upload_repo = MboxUploadRepository(db)
     uploads = await upload_repo.list_for_user(
         user_id=current_user.id, limit=limit, offset=offset
@@ -166,6 +202,7 @@ async def get_upload_status(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, object]:
+    _require_email_accounts_tier(current_user)
     try:
         uid = uuid.UUID(upload_id)
     except ValueError as err:
@@ -196,6 +233,7 @@ async def list_accounts(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, object]:
+    _require_email_accounts_tier(current_user)
     account_repo = DiscoveredAccountRepository(db)
     accounts = await account_repo.list_for_user(
         user_id=current_user.id,
@@ -220,6 +258,7 @@ async def mark_account_reviewed(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, object]:
+    _require_email_accounts_tier(current_user)
     try:
         aid = uuid.UUID(account_id)
     except ValueError as err:
@@ -234,6 +273,163 @@ async def mark_account_reviewed(
         raise HTTPException(status_code=404, detail="Account not found.")
     await db.commit()
     return {"account_id": account_id, "is_reviewed": True}
+
+
+# ---------------------------------------------------------------------------
+# Alias creation
+# ---------------------------------------------------------------------------
+
+_VALID_ALIAS_PROVIDERS: frozenset[str] = frozenset(
+    {IntegrationProvider.SIMPLELOGIN, IntegrationProvider.ADDY_IO}
+)
+
+
+class CreateAliasRequest(BaseModel):
+    provider: str
+    # SimpleLogin: mailbox ID to receive forwarded mail
+    mailbox_id: int | None = None
+    # Addy.io: domain to create alias under (e.g. "anonaddy.me")
+    domain: str | None = None
+    # Optional override for the alias local-part / prefix
+    alias_prefix: str | None = None
+
+
+def _derive_alias_prefix(service_name: str) -> str:
+    """
+    Derive a safe alias prefix from a service name.
+
+    Examples:
+        "GitHub" → "github"
+        "Amazon AWS" → "amazon-aws"
+        "hello.world.com" → "hello-world-com"
+    """
+    slug = service_name.lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", slug)
+    slug = slug.strip("-")
+    return slug[:40] or "zima"
+
+
+@router.post("/accounts/{account_id}/alias", status_code=201)
+async def create_alias_for_account(
+    account_id: str,
+    body: CreateAliasRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict[str, object]:
+    """
+    Create an email alias for a discovered account.
+
+    The alias is created via the user's connected SimpleLogin or Addy.io
+    integration.  The user must have already connected the integration via
+    PUT /api/v1/integrations/{provider} and confirmed the alias proposal in
+    the UI before calling this endpoint.
+
+    Returns the created alias address.
+    """
+    _require_email_accounts_tier(current_user)
+    if body.provider not in _VALID_ALIAS_PROVIDERS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Unknown provider '{body.provider}'. "
+                f"Valid values: {', '.join(sorted(_VALID_ALIAS_PROVIDERS))}."
+            ),
+        )
+
+    # Resolve account
+    try:
+        aid = uuid.UUID(account_id)
+    except ValueError as err:
+        raise HTTPException(status_code=422, detail="Invalid account ID.") from err
+
+    account_repo = DiscoveredAccountRepository(db)
+    account = await account_repo.get_by_id(account_id=aid, user_id=current_user.id)
+    if account is None:
+        raise HTTPException(status_code=404, detail="Account not found.")
+
+    # Retrieve + decrypt API key
+    integration_repo = UserIntegrationRepository(db)
+    record = await integration_repo.get(user_id=current_user.id, provider=body.provider)
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"No {body.provider} integration found. "
+                f"Connect it first via PUT /api/v1/integrations/{body.provider}."
+            ),
+        )
+
+    try:
+        api_key = decrypt_field(record.api_key_ciphertext)
+    except CryptoError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to decrypt stored API key.",
+        ) from exc
+
+    prefix = body.alias_prefix or _derive_alias_prefix(account.service_name)
+
+    # Create alias via provider
+    try:
+        if body.provider == IntegrationProvider.SIMPLELOGIN:
+            if body.mailbox_id is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "mailbox_id is required for SimpleLogin. "
+                        "Use GET /api/v1/integrations/simplelogin/mailboxes"
+                        " to find yours."
+                    ),
+                )
+            sl = SimpleLoginProvider(api_key=api_key)
+            result = await sl.create_alias(
+                prefix=prefix,
+                mailbox_id=body.mailbox_id,
+                note=f"Created by Zima for {account.display_name}",
+            )
+            return {
+                "provider": body.provider,
+                "alias": result.alias,
+                "alias_id": result.alias_id,
+                "mailbox": result.mailbox,
+                "service_name": account.service_name,
+            }
+
+        else:  # addy_io
+            if body.domain is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "domain is required for Addy.io (e.g. 'anonaddy.me'). "
+                        "Use GET /api/v1/integrations/addy_io/account"
+                        " to find available domains."
+                    ),
+                )
+            addy = AddyIoProvider(api_key=api_key)
+            result = await addy.create_alias(
+                domain=body.domain,
+                description=f"Zima: {account.display_name}",
+                local_part=prefix,
+            )
+            return {
+                "provider": body.provider,
+                "alias": result.alias,
+                "alias_id": result.alias_id,
+                "local_part": result.local_part,
+                "domain": result.domain,
+                "service_name": account.service_name,
+            }
+
+    except ProviderAuthError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"{body.provider} API key is invalid or expired.",
+        ) from exc
+    except ProviderError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Alias creation failed: {exc.message}",
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -322,6 +518,7 @@ async def export_accounts(
     Accounts are sorted P1 → P4 so the most critical appear first.
     The BOM (utf-8-sig) ensures Excel opens the file without encoding issues.
     """
+    _require_email_accounts_tier(current_user)
 
     account_repo = DiscoveredAccountRepository(db)
     signal_repo = SignalRepository(db)

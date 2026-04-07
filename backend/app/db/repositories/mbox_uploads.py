@@ -2,7 +2,7 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.db.models.email_accounts import MboxUpload, MboxUploadStatus
@@ -99,3 +99,9 @@ class MboxUploadRepository:
             .offset(offset)
         )
         return list(result.scalars().all())
+
+    async def delete_all_for_user(self, user_id: uuid.UUID) -> None:
+        """Hard-deletes all mbox upload records for a user. Used by GDPR erasure."""
+        await self.session.execute(
+            delete(MboxUpload).where(MboxUpload.user_id == user_id)
+        )

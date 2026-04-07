@@ -17,8 +17,11 @@ from backend.app.db.models.audit import AuditEvent  # noqa: F401
 from backend.app.db.models.email_accounts import (  # noqa: F401
     DiscoveredAccount,
     MboxUpload,
+    NewsletterSubscription,
     ServiceRegistry,
+    VaultImport,
 )
+from backend.app.db.models.integrations import UserIntegration  # noqa: F401
 from backend.app.jobs.models import Scan  # noqa: F401
 from backend.app.scoring.models import Score  # noqa: F401
 from backend.app.signals.models import Signal  # noqa: F401

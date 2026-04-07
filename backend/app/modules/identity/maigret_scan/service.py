@@ -1,14 +1,23 @@
 # backend/app/modules/identity/maigret_scan/service.py
+from __future__ import annotations
+
+import hashlib
 import uuid
+from typing import TYPE_CHECKING
 
 from backend.app.core.enums import Confidence, EntityType, Severity
 from backend.app.core.logging import get_logger
 from backend.app.modules.base.service import BaseModuleService
-from backend.app.providers.base.exceptions import ProviderError
+from backend.app.providers.base.runner import run_provider
 from backend.app.providers.tools.maigret.client import MaigretProvider
 from backend.app.signals.schemas import SignalCreate
 
+if TYPE_CHECKING:
+    from backend.app.jobs.context import ScanExecutionContext
+
 logger = get_logger(__name__)
+
+_PROVIDER_NAME = "tool_maigret"
 
 
 class MaigretScanService(BaseModuleService):
@@ -27,21 +36,39 @@ class MaigretScanService(BaseModuleService):
         user_id: uuid.UUID,
         asset_id: uuid.UUID,
         asset_value: str,
+        ctx: ScanExecutionContext | None = None,
     ) -> list[SignalCreate]:
         signals: list[SignalCreate] = []
 
-        provider = MaigretProvider()
-        try:
-            findings = await provider.search_usernames(asset_value)
-        except ProviderError as e:
-            logger.error(
-                "maigret_scan.provider_failure",
-                error=str(e),
-                asset_value=asset_value,
+        # Record audit trail before spawning the subprocess.
+        # Entity value is SHA-256 hashed so the log contains no PII.
+        if ctx is not None:
+            ctx.record_event(
+                "local_tool_invoked",
+                module=self.module_name,
+                provider=_PROVIDER_NAME,
+                asset_id=str(asset_id),
+                entity_hash=hashlib.sha256(asset_value.encode()).hexdigest(),
             )
+
+        provider = MaigretProvider()
+
+        # run_provider handles policy check, caching, and error capture.
+        # Local tools have no API key — has_credentials=True always.
+        result = await run_provider(
+            provider_name=_PROVIDER_NAME,
+            call=lambda: provider.search_usernames(asset_value),
+            has_credentials=True,
+            user_id=user_id,
+            entity_type="username",
+            entity_value=asset_value,
+            ctx=ctx,
+        )
+
+        if not result.success:
             return signals
 
-        for finding in findings:
+        for finding in result.findings:
             raw = finding.get("raw", {})
             site = raw.get("site", "unknown") if isinstance(raw, dict) else "unknown"
             url = raw.get("url", "") if isinstance(raw, dict) else ""

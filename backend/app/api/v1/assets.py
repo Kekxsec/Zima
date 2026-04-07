@@ -2,7 +2,7 @@
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 from backend.app.api.dependencies import (
     get_asset_service,
@@ -15,15 +15,17 @@ from backend.app.auth.service import AuthService
 from backend.app.core.config import settings
 from backend.app.core.enums import EntityType
 from backend.app.core.logging import get_logger
-from backend.app.core.rate_limit import get_real_ip
+from backend.app.core.rate_limit import get_real_ip, limiter
 from backend.app.email.service import EmailService
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 logger = get_logger(__name__)
 
 # Entity types a user can declare via this endpoint.
-# EMAIL assets go through OTP verification; everything else is declared here.
-_DECLARABLE_TYPES = {EntityType.USERNAME, EntityType.PHONE_NUMBER}
+# EMAIL and PHONE_NUMBER assets require OTP verification.
+# USERNAME assets may be stored as user-declared inventory but are not marked
+# verified automatically.
+_DECLARABLE_TYPES = {EntityType.USERNAME}
 
 _email_service = EmailService()
 
@@ -47,7 +49,7 @@ class EmailOTPRequest(BaseModel):
 
 class EmailOTPVerify(BaseModel):
     email: EmailStr
-    code: str
+    code: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
 
 
 class PhoneOTPRequest(BaseModel):
@@ -56,19 +58,19 @@ class PhoneOTPRequest(BaseModel):
 
 class PhoneOTPVerify(BaseModel):
     phone: str
-    code: str
+    code: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
 
 
-@router.post("/", response_model=AssetOut, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=AssetOut, status_code=status.HTTP_201_CREATED)
 async def declare_asset(
     payload: AssetDeclarePayload,
     current_user: User = Depends(get_current_user),
     asset_service: AssetService = Depends(get_asset_service),
 ) -> AssetOut:
-    """Register a username or phone number asset for the current user.
+    """Register a username asset for the current user.
 
-    The asset is immediately marked as verified (user-declared).
-    Duplicate submissions for the same type+value are silently de-duped.
+    User-declared assets stored via this endpoint are inventory only and are
+    not marked verified automatically.
     """
     if payload.entity_type not in _DECLARABLE_TYPES:
         raise HTTPException(
@@ -104,6 +106,7 @@ async def declare_asset(
 
 
 @router.post("/email/otp/request", status_code=202)
+@limiter.limit("3/15minutes")
 async def request_email_asset_otp(
     request: Request,
     body: EmailOTPRequest,
@@ -117,7 +120,11 @@ async def request_email_asset_otp(
     """
     email = str(body.email).lower().strip()
     client_ip = get_real_ip(request)
-    raw_code = await auth_service.request_asset_email_otp(email, client_ip)
+    raw_code = await auth_service.request_asset_email_otp(
+        email,
+        client_ip,
+        current_user,
+    )
     if raw_code is not None:
         if not settings.is_production:
             logger.info(
@@ -132,6 +139,7 @@ async def request_email_asset_otp(
 
 
 @router.post("/phone/otp/request", status_code=202)
+@limiter.limit("3/15minutes")
 async def request_phone_asset_otp(
     request: Request,
     body: PhoneOTPRequest,
@@ -146,7 +154,11 @@ async def request_phone_asset_otp(
     """
     phone = body.phone.strip()
     client_ip = get_real_ip(request)
-    raw_code = await auth_service.request_asset_phone_otp(phone, client_ip)
+    raw_code = await auth_service.request_asset_phone_otp(
+        phone,
+        client_ip,
+        current_user,
+    )
     if raw_code is not None:
         if not settings.is_production:
             logger.info(
@@ -161,7 +173,9 @@ async def request_phone_asset_otp(
 
 
 @router.post("/phone/otp/verify", response_model=AssetOut, status_code=200)
+@limiter.limit("10/15minutes")
 async def verify_phone_asset_otp(
+    request: Request,
     body: PhoneOTPVerify,
     current_user: User = Depends(get_current_user),
     auth_service: AuthService = Depends(get_auth_service),
@@ -169,19 +183,21 @@ async def verify_phone_asset_otp(
 ) -> AssetOut:
     """Verify a phone OTP and register the number as a verified asset."""
     phone = body.phone.strip()
-    success = await auth_service.verify_asset_phone_otp(phone, body.code)
+    success = await auth_service.verify_asset_phone_otp(
+        phone,
+        body.code,
+        current_user,
+    )
     if not success:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired code.",
         )
-    asset = await asset_service.register_declared_asset(
+    asset = await asset_service.register_verified_asset(
         user_id=current_user.id,
         entity_type="phone_number",
         value=phone,
     )
-    # Mark as verified. register_declared_asset sets is_verified=True for
-    # declared assets.
     return AssetOut(
         asset_id=str(asset.id),
         entity_type=asset.entity_type,
@@ -194,7 +210,9 @@ async def verify_phone_asset_otp(
 
 
 @router.post("/email/otp/verify", response_model=AssetOut, status_code=200)
+@limiter.limit("10/15minutes")
 async def verify_email_asset_otp(
+    request: Request,
     body: EmailOTPVerify,
     current_user: User = Depends(get_current_user),
     auth_service: AuthService = Depends(get_auth_service),
@@ -206,7 +224,11 @@ async def verify_email_asset_otp(
     for future scans. Returns 401 for invalid or expired codes.
     """
     email = str(body.email).lower().strip()
-    success = await auth_service.verify_asset_email_otp(email, body.code)
+    success = await auth_service.verify_asset_email_otp(
+        email,
+        body.code,
+        current_user,
+    )
     if not success:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

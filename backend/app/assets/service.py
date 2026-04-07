@@ -70,11 +70,11 @@ class AssetService:
         entity_type: str,
         value: str,
     ) -> Asset:
-        """Register a user-declared non-email asset as verified.
+        """Register a user-declared non-email asset without ownership proof.
 
-        Unlike register_verified_email, this does not require OTP. The user is
-        asserting ownership, so is_verified=True is set as the verification
-        event for scan-eligible assets.
+        Declared assets are stored for inventory purposes only until a separate
+        verification flow proves control. This prevents scan-eligible assets
+        from being marked verified without an OTP or equivalent proof.
         """
         existing = await self.asset_repo.get_by_value(
             user_id=user_id,
@@ -82,6 +82,54 @@ class AssetService:
             value=value,
         )
         if existing:
+            return existing
+
+        asset = Asset(
+            user_id=user_id,
+            entity_type=entity_type,
+            value=value,
+            is_primary=False,
+            is_verified=False,
+            verified_at=None,
+        )
+        self.session.add(asset)
+        try:
+            await self.session.commit()
+        except IntegrityError:
+            await self.session.rollback()
+            winner = await self.asset_repo.get_by_value(
+                user_id=user_id,
+                entity_type=entity_type,
+                value=value,
+            )
+            if winner is None:
+                raise
+            return winner
+
+        logger.info(
+            "asset.declared_registered",
+            user_id=str(user_id),
+            entity_type=entity_type,
+        )
+        return asset
+
+    async def register_verified_asset(
+        self,
+        user_id: uuid.UUID,
+        entity_type: str,
+        value: str,
+    ) -> Asset:
+        """Register or upgrade a non-email asset after proof of ownership."""
+        existing = await self.asset_repo.get_by_value(
+            user_id=user_id,
+            entity_type=entity_type,
+            value=value,
+        )
+        if existing:
+            if not existing.is_verified:
+                existing.is_verified = True
+                existing.verified_at = datetime.now(UTC)
+                await self.session.commit()
             return existing
 
         asset = Asset(
@@ -104,10 +152,14 @@ class AssetService:
             )
             if winner is None:
                 raise
+            if not winner.is_verified:
+                winner.is_verified = True
+                winner.verified_at = datetime.now(UTC)
+                await self.session.commit()
             return winner
 
         logger.info(
-            "asset.declared_registered",
+            "asset.verified_registered",
             user_id=str(user_id),
             entity_type=entity_type,
         )

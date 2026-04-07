@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.dependencies import get_current_user, get_db_session
 from backend.app.auth.models import User
-from backend.app.core.enums import EntityType, ScanStatus, Tier
+from backend.app.core.enums import EntityType, ScanStatus, parse_tier
 from backend.app.core.rate_limit import limiter
 from backend.app.db.repositories.assets import AssetRepository
 from backend.app.db.repositories.scans import ScanRepository
@@ -16,7 +16,7 @@ from backend.app.jobs.orchestrator import run_scan_task
 router = APIRouter(prefix="/scans", tags=["scans"])
 
 
-@router.post("/", status_code=202)
+@router.post("", status_code=202)
 @limiter.limit("5/hour")
 async def trigger_scan(
     request: Request,  # Required by slowapi for rate limiting
@@ -40,7 +40,7 @@ async def trigger_scan(
     scan_repo = ScanRepository(db)
     scan = await scan_repo.create(
         user_id=current_user.id,
-        tier=Tier(current_user.tier),
+        tier=parse_tier(current_user.tier),
         target_emails=target_emails,
     )
     await db.commit()
@@ -50,18 +50,14 @@ async def trigger_scan(
         run_scan_task,
         user_id=current_user.id,
         scan_id=scan.id,
-        tier=Tier(current_user.tier),
+        tier=parse_tier(current_user.tier),
         target_email_asset_ids=target_email_asset_ids,
     )
 
-    return {
-        "scan_id": str(scan.id),
-        "status": ScanStatus.PENDING.value,
-        "target_emails": target_emails,
-    }
+    return _scan_to_dict(scan)
 
 
-@router.get("/")
+@router.get("")
 async def get_scan_history(
     limit: int = 20,
     offset: int = 0,
@@ -124,6 +120,7 @@ async def get_scan_status(
 def _scan_to_dict(scan: Scan) -> dict[str, object]:
     return {
         "id": str(scan.id),
+        "scan_id": str(scan.id),
         "status": scan.status,
         "tier": scan.tier,
         "started_at": scan.started_at.isoformat() if scan.started_at else None,

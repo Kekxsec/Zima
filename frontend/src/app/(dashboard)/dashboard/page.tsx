@@ -11,6 +11,9 @@ import {
   ArrowRight,
   Activity,
   Mailbox,
+  Lock,
+  Search,
+  BookOpen,
 } from "lucide-react"
 import Link from "next/link"
 import {
@@ -382,6 +385,135 @@ export default function DashboardPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* ── Next Steps / Remediation Journey ── */}
+      {primaryScore && (
+        <div className="space-y-3">
+          <div>
+            <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Next Steps
+            </h2>
+          </div>
+
+          {/* Password Manager Card — always shown */}
+          <Card className={cn(
+            "border",
+            totalOpen > 0 ? "border-amber-200 bg-amber-50/30 dark:border-amber-800/40 dark:bg-amber-900/10" : ""
+          )}>
+            <CardContent className="p-5">
+              <div className="flex items-start gap-4">
+                <div className={cn(
+                  "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg",
+                  totalOpen > 0 ? "bg-amber-100 dark:bg-amber-900/30" : "bg-primary/10"
+                )}>
+                  <Lock className={cn("h-5 w-5", totalOpen > 0 ? "text-amber-600 dark:text-amber-400" : "text-primary")} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <p className="text-sm font-semibold text-foreground">
+                      Use a password manager
+                    </p>
+                    {totalOpen > 0 && (
+                      <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide">
+                        Recommended
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    A password manager generates and stores a unique, strong password for every site — the single most
+                    effective step you can take to limit breach impact.
+                    {totalOpen > 0 && ` You have ${totalOpen} open finding${totalOpen > 1 ? "s" : ""} — changing reused passwords now reduces your exposure.`}
+                  </p>
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    {[
+                      { name: "Bitwarden", note: "Free & open source" },
+                      { name: "1Password", note: "Best for teams" },
+                      { name: "Dashlane", note: "Good for beginners" },
+                    ].map((pm) => (
+                      <div
+                        key={pm.name}
+                        className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs"
+                      >
+                        <BookOpen className="h-3 w-3 text-muted-foreground" />
+                        <span className="font-medium">{pm.name}</span>
+                        <span className="text-muted-foreground">· {pm.note}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Mbox Scan Card — shown when no accounts discovered yet */}
+          {totalAccounts === 0 ? (
+            <Card className="border-violet-200 dark:border-violet-800/40">
+              <CardContent className="p-5">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-violet-100 dark:bg-violet-900/30">
+                    <Search className="h-5 w-5 text-violet-600 dark:text-violet-400" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-foreground mb-1">
+                      Discover every account you&apos;ve ever created
+                    </p>
+                    <p className="text-xs text-muted-foreground leading-relaxed mb-3">
+                      Export your email as an mbox file and upload it here — Zima will scan your inbox for
+                      account registration and confirmation emails, revealing services you may have forgotten about or
+                      that are still active under old passwords.
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-2 text-xs text-muted-foreground mb-3">
+                      {[
+                        "Gmail: Settings → All mail → Export",
+                        "Outlook: File → Open & Export → Import/Export",
+                        "Apple Mail: Mailbox → Export Mailbox",
+                      ].map((step) => (
+                        <div key={step} className="flex items-center gap-1.5">
+                          <div className="h-1.5 w-1.5 rounded-full bg-violet-400 shrink-0" />
+                          <span>{step}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <Button size="sm" variant="outline" className="gap-1.5 text-xs border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20" asChild>
+                      <Link href="/accounts">
+                        <Mailbox className="h-3.5 w-3.5" /> Upload mbox file <ArrowRight className="h-3 w-3" />
+                      </Link>
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            /* Linked Accounts Card — shown when accounts have been discovered */
+            <Card className="border-emerald-200 dark:border-emerald-800/40">
+              <CardContent className="p-5">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/30">
+                    <Mailbox className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <p className="text-sm font-semibold text-foreground">
+                        {totalAccounts} linked account{totalAccounts !== 1 ? "s" : ""} discovered
+                      </p>
+                      <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs shrink-0" asChild>
+                        <Link href="/accounts">
+                          Review <ArrowRight className="h-3 w-3" />
+                        </Link>
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Your mbox scan found {totalAccounts} service{totalAccounts !== 1 ? "s" : ""} registered to
+                      your email. Review them to identify dormant accounts and services you no longer use —
+                      old accounts are a common attack surface.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
 
       {/* Empty state CTA */}
       {!scoresLoading && !primaryScore && (

@@ -17,7 +17,7 @@ _SPECIAL_SCORE_DOMAINS = {"identity"}
 router = APIRouter(prefix="/scores", tags=["scores"])
 
 
-@router.get("/")
+@router.get("")
 async def get_scores(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),

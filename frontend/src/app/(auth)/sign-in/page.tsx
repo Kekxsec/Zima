@@ -60,7 +60,9 @@ function SignInForm() {
             return
           }
         } catch {
-          // If check fails, proceed to normal destination
+          // Can't confirm prior scans exist — route new users to onboarding
+          router.push("/onboarding")
+          return
         }
       }
       router.push(next)
