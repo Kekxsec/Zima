@@ -1,9 +1,11 @@
 # tests/api/test_scan_endpoints.py
-from unittest.mock import patch
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
 
+from backend.app.core.enums import ScanStatus
 from backend.app.jobs.models import Scan
 from tests.factories import AssetFactory
 
@@ -101,6 +103,32 @@ async def test_get_scan_status_returns_422_for_invalid_uuid(
 ) -> None:
     response = await auth_client.get("/api/v1/scans/not-a-uuid")
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_get_scan_status_skips_stale_check_for_recent_running_scan(
+    auth_client: AsyncClient,
+    db_session,
+) -> None:
+    user = auth_client.test_user  # type: ignore[attr-defined]
+    scan = Scan(
+        user_id=user.id,
+        tier="core",
+        status=ScanStatus.RUNNING.value,
+        started_at=datetime.now(UTC),
+    )
+    db_session.add(scan)
+    await db_session.commit()
+
+    with patch(
+        "backend.app.api.v1.scans.ScanRepository.mark_stale_if_running",
+        new_callable=AsyncMock,
+    ) as mock_mark_stale:
+        response = await auth_client.get(f"/api/v1/scans/{scan.id}")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == ScanStatus.RUNNING.value
+    mock_mark_stale.assert_not_awaited()
 
 
 @pytest.mark.asyncio

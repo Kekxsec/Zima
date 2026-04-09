@@ -28,6 +28,12 @@ from backend.app.modules.device.software_inventory.service import (
 from backend.app.modules.device.software_vulnerability.service import (
     SoftwareVulnerabilityService,
 )
+from backend.app.modules.domain.dns_intelligence.service import (
+    DomainDNSIntelligenceService,
+)
+from backend.app.modules.domain.domain_reputation.service import (
+    DomainReputationService,
+)
 from backend.app.modules.identity.account_enumeration_risk.service import (
     AccountEnumerationRiskService,
 )
@@ -44,6 +50,9 @@ from backend.app.modules.identity.credential_exposure.service import (
 from backend.app.modules.identity.darkweb_identity_monitor.service import (
     DarkwebIdentityMonitorService,
 )
+from backend.app.modules.identity.email_reputation.service import (
+    EmailReputationService,
+)
 from backend.app.modules.identity.maigret_scan.service import MaigretScanService
 from backend.app.modules.identity.phone_exposure.service import PhoneExposureService
 from backend.app.modules.identity.public_profile_scan.service import (
@@ -54,6 +63,9 @@ from backend.app.modules.identity.stealer_log_exposure.service import (
 )
 from backend.app.modules.identity.username_exposure.service import (
     UsernameExposureService,
+)
+from backend.app.modules.infrastructure.infrastructure_exposure.service import (
+    InfrastructureExposureService,
 )
 from backend.app.tiers.loader import get_enabled_domains
 
@@ -80,6 +92,7 @@ DOMAIN_MODULES: dict[str, list[type[BaseModuleService]]] = {
         AliasCorrelationService,
         DarkwebIdentityMonitorService,
         PublicProfileScanService,
+        EmailReputationService,
     ],
     "browser": [
         BrowserConfigurationService,
@@ -92,6 +105,13 @@ DOMAIN_MODULES: dict[str, list[type[BaseModuleService]]] = {
         FirewallStatusService,
         DeviceInventoryService,
         SoftwareInventoryService,
+    ],
+    "infrastructure": [
+        InfrastructureExposureService,
+    ],
+    "domain": [
+        DomainDNSIntelligenceService,
+        DomainReputationService,
     ],
 }
 

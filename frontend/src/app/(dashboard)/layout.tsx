@@ -13,17 +13,21 @@ export default function DashboardLayout({
 }) {
   const router = useRouter()
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  const hasHydrated = useAuthStore((s) => s._hasHydrated)
   const completed = useOnboardingStore((s) => s.completed)
+  const scanId = useOnboardingStore((s) => s.scanId)
+  const canAccessDashboard = completed || Boolean(scanId)
 
   useEffect(() => {
+    if (!hasHydrated) return
     if (!isAuthenticated) {
       router.replace("/sign-in")
-    } else if (!completed) {
+    } else if (!canAccessDashboard) {
       router.replace("/onboarding")
     }
-  }, [isAuthenticated, completed, router])
+  }, [hasHydrated, isAuthenticated, canAccessDashboard, router])
 
-  if (!isAuthenticated || !completed) return null
+  if (!hasHydrated || !isAuthenticated || !canAccessDashboard) return null
 
   return <DashboardShell>{children}</DashboardShell>
 }

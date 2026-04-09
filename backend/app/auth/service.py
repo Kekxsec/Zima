@@ -147,7 +147,7 @@ class AuthService:
             expires_at=datetime.now(UTC) + timedelta(minutes=OTP_EXPIRY_MINUTES),
             requested_from_ip=requesting_ip,
         )
-        self.session.add(token)
+        await self.token_repo.create(token)
         await self.audit_repo.log(
             event_type=AuditEventType.SIGN_IN_REQUESTED,
             user_id=user.id,
@@ -292,7 +292,7 @@ class AuthService:
             expires_at=datetime.now(UTC) + timedelta(minutes=OTP_EXPIRY_MINUTES),
             requested_from_ip=requesting_ip,
         )
-        self.session.add(token)
+        await self.token_repo.create(token)
         await self.session.commit()
         logger.info("auth.asset_otp_issued", email_domain=email.split("@")[-1])
         return raw_code
@@ -359,7 +359,7 @@ class AuthService:
             expires_at=datetime.now(UTC) + timedelta(minutes=OTP_EXPIRY_MINUTES),
             requested_from_ip=requesting_ip,
         )
-        self.session.add(token)
+        await self.token_repo.create(token)
         await self.session.commit()
         logger.info("auth.phone_otp_issued")
         return raw_code
@@ -389,4 +389,63 @@ class AuthService:
         self._reset_otp_failures(user, asset_flow=True)
         await self.session.commit()
         logger.info("auth.phone_otp_verified")
+        return True
+
+    async def request_asset_domain_otp(
+        self,
+        domain: str,
+        requesting_ip: str,
+        user: User,
+    ) -> str | None:
+        """
+        Generates an OTP for verifying a domain asset via admin@<domain>.
+
+        Stores the token keyed by the admin address so that verify_asset_domain_otp
+        can look it up. Returns the raw code on success, None if rate-limited.
+        """
+        admin_email = f"admin@{domain}"
+        if self._is_otp_locked(user, asset_flow=True):
+            logger.warning("security.domain_otp_request_locked", user_id=str(user.id))
+            return None
+        active_count = await self.token_repo.count_active_for_email(admin_email)
+        if active_count >= MAX_ACTIVE_TOKENS_PER_EMAIL:
+            logger.warning("security.domain_otp_rate_limit", ip=requesting_ip)
+            return None
+        raw_code = _generate_code()
+        token = AuthToken(
+            email=admin_email,
+            code_hash=_hash_code(raw_code),
+            expires_at=datetime.now(UTC) + timedelta(minutes=OTP_EXPIRY_MINUTES),
+            requested_from_ip=requesting_ip,
+        )
+        await self.token_repo.create(token)
+        await self.session.commit()
+        logger.info("auth.domain_otp_issued", domain=domain)
+        return raw_code
+
+    async def verify_asset_domain_otp(self, domain: str, code: str, user: User) -> bool:
+        """
+        Verifies an OTP for a domain asset.
+
+        Returns True on success (token consumed), False on any failure.
+        Does not create a session — the caller registers the asset.
+        """
+        admin_email = f"admin@{domain}"
+        if self._is_otp_locked(user, asset_flow=True):
+            logger.warning("security.domain_otp_verify_locked", user_id=str(user.id))
+            return False
+        token = await self.token_repo.get_valid_token(admin_email, _hash_code(code))
+        if not token:
+            locked = self._record_otp_failure(user, asset_flow=True)
+            logger.warning(
+                "security.domain_otp_verify_failed",
+                user_id=str(user.id),
+                locked=locked,
+            )
+            await self.session.commit()
+            return False
+        token.used_at = datetime.now(UTC)
+        self._reset_otp_failures(user, asset_flow=True)
+        await self.session.commit()
+        logger.info("auth.domain_otp_verified", domain=domain)
         return True

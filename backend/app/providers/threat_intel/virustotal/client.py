@@ -198,6 +198,8 @@ class VirusTotalProvider(BaseProviderClient):
                         entity_value=value,
                         confidence=min(1.0, (malicious / max(total, 1)) + 0.3),
                         tags=["virustotal", "malware", "passive"],
+                        malicious_count=malicious,
+                        suspicious_count=suspicious,
                     )
                 )
 

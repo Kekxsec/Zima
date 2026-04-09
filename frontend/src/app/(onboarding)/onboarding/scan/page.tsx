@@ -77,6 +77,7 @@ export default function ScanPage() {
   const setScanId = useOnboardingStore((s) => s.setScanId)
   const setCompleted = useOnboardingStore((s) => s.setCompleted)
   const identity = useOnboardingStore((s) => s.identity)
+  const scanIdFromStore = useOnboardingStore((s) => s.scanId)
 
   const [scanState, setScanState] = useState<ScanState>("triggering")
   const [error, setError] = useState<string | null>(null)
@@ -84,6 +85,7 @@ export default function ScanPage() {
   const [scan, setScan] = useState<Scan | null>(null)
 
   const stepTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const startedScanPromiseRef = useRef<Promise<Scan> | null>(null)
 
   // Auto-advance through steps 0 → AUTO_ADVANCE_MAX at STEP_INTERVAL_MS each.
   // Stops before the scoring step so it doesn't falsely imply completion.
@@ -98,73 +100,118 @@ export default function ScanPage() {
     return () => clearInterval(stepTimerRef.current!)
   }, [])
 
-  // When the scan actually completes, advance to the scoring step
-  useEffect(() => {
-    if (scanState === "completed") {
-      setVisibleStep(SCORING_IDX)
-    }
-  }, [scanState])
+  const estimatedProgressPercent =
+    scanState === "completed"
+      ? 100
+      : Math.max(
+          6,
+          Math.min(
+            94,
+            Math.round(((visibleStep + (scanState === "running" ? 0.5 : 0)) / SCAN_STEPS.length) * 100),
+          ),
+        )
+
+  const activeVisibleStep = scanState === "completed" ? SCORING_IDX : visibleStep
 
   // Trigger scan then poll.
-  // StrictMode-safe: no hasFiredRef guard. The cleanup `cancelled` flag
-  // aborts the first mount's in-flight work; the second mount retries cleanly.
   useEffect(() => {
     let cancelled = false
     let pollInterval: ReturnType<typeof setInterval> | null = null
 
+    async function requestScan(): Promise<Scan> {
+      const declarationTask = identity
+        ? Promise.allSettled(
+            Array.from(
+              new Set(
+                identity.usernames
+                  .map((u) => u.trim().toLowerCase())
+                  .filter(Boolean),
+              ),
+            ).map((value) =>
+              api.post<AssetOut>("/assets", {
+                entity_type: "username",
+                value,
+              } satisfies AssetDeclarePayload),
+            ),
+          )
+        : null
+
+      const triggered = await api.post<Scan>("/scans", { tier: "standard" })
+      if (declarationTask) {
+        const results = await declarationTask
+        const failed = results.filter((r) => r.status === "rejected")
+        if (failed.length > 0) {
+          console.warn(`[scan] ${failed.length} username declaration(s) failed`)
+        }
+      }
+
+      setScanId(triggered.id)
+      return triggered
+    }
+
+    async function loadOrCreateScan(): Promise<Scan> {
+      if (scanIdFromStore) {
+        return api.get<Scan>(`/scans/${scanIdFromStore}`)
+      }
+
+      if (!startedScanPromiseRef.current) {
+        startedScanPromiseRef.current = requestScan().catch((err) => {
+          startedScanPromiseRef.current = null
+          throw err
+        })
+      }
+
+      return startedScanPromiseRef.current
+    }
+
+    async function applyScanState(latest: Scan) {
+      setScan(latest)
+      setScanId(latest.id)
+
+      if (latest.status === "completed") {
+        setScanState("completed")
+        setCompleted(true)
+        return true
+      }
+
+      if (latest.status === "failed") {
+        setScanState("failed")
+        setError(latest.error_detail ?? "Scan failed — please try again.")
+        return true
+      }
+
+      setScanState("running")
+      return false
+    }
+
     async function triggerAndPoll() {
       try {
-        // Submit declared assets (phone, usernames) before triggering the scan
-        if (identity) {
-          const declarations: AssetDeclarePayload[] = []
-          if (identity.phone?.trim()) {
-            declarations.push({ entity_type: "phone_number", value: identity.phone.trim() })
-          }
-          for (const u of identity.usernames) {
-            if (u.trim()) declarations.push({ entity_type: "username", value: u.trim() })
-          }
-          await Promise.allSettled(
-            declarations.map((d) => api.post<AssetOut>("/assets", d)),
-          )
-        }
+        const triggered = await loadOrCreateScan()
         if (cancelled) return
-
-        // Trigger scan
-        const triggered = await api.post<Scan>("/scans", { tier: "standard" })
-        if (cancelled) return
-
-        setScanId(triggered.id)
-        setScanState("running")
-
-        if (triggered.status === "completed") {
-          setScan(triggered)
-          setScanState("completed")
-          setCompleted(true)
+        const finishedImmediately = await applyScanState(triggered)
+        if (finishedImmediately || cancelled) {
           return
         }
 
-        // Poll every 4 s — use the individual endpoint so stale detection fires
+        // Poll every 4 s — use the individual endpoint so stale detection fires.
+        // This path also resumes correctly if the page replays effects in dev
+        // Strict Mode or the user refreshes mid-scan.
         pollInterval = setInterval(async () => {
           try {
             const latest = await api.get<Scan>(`/scans/${triggered.id}`)
             if (cancelled) return
-            setScan(latest)
-
-            if (latest.status === "completed") {
+            const finished = await applyScanState(latest)
+            if (finished) {
               clearInterval(pollInterval!)
-              setScanState("completed")
-              setCompleted(true)
-            } else if (latest.status === "failed") {
-              clearInterval(pollInterval!)
-              setScanState("failed")
-              setError(latest.error_detail ?? "Scan failed — please try again.")
             }
           } catch (pollErr) {
             if (cancelled) return
+            clearInterval(pollInterval!)
+            setScanState("failed")
             if (pollErr instanceof ApiRequestError && (pollErr.status === 401 || pollErr.status === 403)) {
-              clearInterval(pollInterval!)
-              setScanState("failed")
               setError("Your session expired. Please sign in again.")
+            } else {
+              setError(pollErr instanceof ApiRequestError ? pollErr.detail : "Scan check failed. Please refresh.")
             }
           }
         }, 4000)
@@ -181,16 +228,15 @@ export default function ScanPage() {
       cancelled = true
       if (pollInterval) clearInterval(pollInterval)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [identity, scanIdFromStore, setCompleted, setScanId])
 
-  // Navigate after scoring step becomes visible and scan is done
+  // If the scan completes very fast (before the dashboard redirect), go to results
   useEffect(() => {
-    if (scanState === "completed" && visibleStep >= SCORING_IDX) {
+    if (scanState === "completed" && activeVisibleStep >= SCORING_IDX) {
       const t = setTimeout(() => router.push("/onboarding/results"), 1200)
       return () => clearTimeout(t)
     }
-  }, [scanState, visibleStep, router])
+  }, [activeVisibleStep, scanState, router])
 
   return (
     <div className="min-h-screen flex flex-col items-center px-4 py-12">
@@ -229,9 +275,30 @@ export default function ScanPage() {
               ? error ?? "An unexpected error occurred."
               : scanState === "completed"
               ? "All checks complete. Preparing your results…"
-              : "This usually takes 60–90 seconds. Sit tight while we check multiple sources."}
+              : "Scans check dozens of sources and can take up to 30 minutes. Stay on this page and we’ll move you forward as soon as results are ready."}
           </p>
         </div>
+
+        {scanState !== "failed" && (
+          <div className="mb-4">
+            <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
+              <span>{scanState === "completed" ? "Complete" : "Estimated progress"}</span>
+              <span>{estimatedProgressPercent}%</span>
+            </div>
+            <div className="h-2 rounded-full bg-slate-800/70 border border-slate-700/60 overflow-hidden">
+              <div
+                className={`h-full transition-all duration-700 ${
+                  scanState === "completed"
+                    ? "bg-emerald-400"
+                    : scanState === "failed"
+                    ? "bg-red-400"
+                    : "bg-primary"
+                }`}
+                style={{ width: `${estimatedProgressPercent}%` }}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Scan step list */}
         {scanState !== "failed" && (
@@ -240,8 +307,8 @@ export default function ScanPage() {
               const isDone =
                 scanState === "completed"
                   ? true
-                  : i < visibleStep
-              const isActive = !isDone && i === visibleStep
+                  : i < activeVisibleStep
+              const isActive = !isDone && i === activeVisibleStep
 
               return (
                 <div

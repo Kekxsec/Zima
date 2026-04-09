@@ -1,0 +1,71 @@
+{
+  "browser": "brave",
+  "baseline_version": "1",
+  "rules": [
+    {
+      "id": "brave-shields-enabled",
+      "title": "Brave Shields enabled globally",
+      "setting_key": "brave.shields.enabled",
+      "desired_value": true,
+      "audit_method": "read_preference",
+      "apply_method": "write_preference",
+      "verify_method": "read_preference",
+      "requires_admin": false,
+      "risk_if_skipped": "Trackers and ads not blocked at browser level",
+      "rollback_support": true,
+      "reference": "https://support.brave.com/hc/en-us/articles/360022973471"
+    },
+    {
+      "id": "brave-https-everywhere",
+      "title": "HTTPS Everywhere / upgrade insecure requests enabled",
+      "setting_key": "brave.shields.httpsUpgrade",
+      "desired_value": "strict",
+      "audit_method": "read_preference",
+      "apply_method": "write_preference",
+      "verify_method": "read_preference",
+      "requires_admin": false,
+      "risk_if_skipped": "Browser may load HTTP pages, exposing data to interception",
+      "rollback_support": true,
+      "reference": "https://support.brave.com/hc/en-us/articles/360023023111"
+    },
+    {
+      "id": "brave-safe-browsing",
+      "title": "Safe Browsing enabled",
+      "setting_key": "safebrowsing.enabled",
+      "desired_value": true,
+      "audit_method": "read_preference",
+      "apply_method": "write_preference",
+      "verify_method": "read_preference",
+      "requires_admin": false,
+      "risk_if_skipped": "Phishing and malware sites not blocked",
+      "rollback_support": true,
+      "reference": "https://support.brave.com/hc/en-us/articles/360017989132"
+    },
+    {
+      "id": "brave-fingerprinting-protection",
+      "title": "Fingerprinting protection set to strict",
+      "setting_key": "brave.shields.fingerprintingMode",
+      "desired_value": "strict",
+      "audit_method": "read_preference",
+      "apply_method": "write_preference",
+      "verify_method": "read_preference",
+      "requires_admin": false,
+      "risk_if_skipped": "Browser fingerprint may uniquely identify user across sites",
+      "rollback_support": true,
+      "reference": "https://brave.com/privacy-features/"
+    },
+    {
+      "id": "brave-extension-auto-update",
+      "title": "Extension auto-update enabled",
+      "setting_key": "extensions.autoupdate",
+      "desired_value": true,
+      "audit_method": "read_preference",
+      "apply_method": "write_preference",
+      "verify_method": "read_preference",
+      "requires_admin": false,
+      "risk_if_skipped": "Extensions may have unpatched vulnerabilities",
+      "rollback_support": true,
+      "reference": "https://support.brave.com/hc/en-us/articles/360017989132"
+    }
+  ]
+}

@@ -313,13 +313,14 @@ export default function IntegrationsPage() {
   })
 
   const integrations = data?.integrations ?? []
+  const connectedCount = integrations.filter((integration) => integration.connected).length
 
   return (
-    <div className="space-y-5 max-w-2xl">
-      <div>
-        <h1 className="text-xl font-bold tracking-tight">Integrations</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Connect third-party services to enhance your identity scan coverage
+    <div className="space-y-5">
+      <div className="space-y-2">
+        <h1 className="text-2xl font-bold tracking-tight">Integrations</h1>
+        <p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">
+          Integrations are optional. Connect alias services to give Zima broader scan coverage.
         </p>
       </div>
 

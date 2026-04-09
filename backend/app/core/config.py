@@ -131,6 +131,7 @@ class Settings(BaseSettings):
 
     # Providers — infrastructure intelligence
     leakix_api_key: SecretStr | None = None
+    whoisxmlapi_api_key: SecretStr | None = None
 
     # Providers — phone intelligence
     numverify_api_key: SecretStr | None = None
@@ -148,6 +149,14 @@ class Settings(BaseSettings):
 
     # Tier
     default_tier: str = "core"
+
+    # Scan staleness — how long a running scan may stay in "running" state
+    # before it is automatically marked stale on the next status poll.
+    stale_scan_after_minutes: int = 30
+
+    # Companion
+    companion_setup_token_expire_minutes: int = 15
+    companion_token_expire_days: int = 7
 
     @property
     def is_production(self) -> bool:

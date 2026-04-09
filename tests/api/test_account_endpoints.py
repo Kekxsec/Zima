@@ -10,6 +10,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.auth.models import User
 from backend.app.tiers.loader import load_tier_config
 
+
+@pytest.mark.asyncio
+async def test_get_account_returns_profile_and_assets(
+    auth_client: AsyncClient,
+) -> None:
+    """GET /account returns the authenticated user's profile payload."""
+    response = await auth_client.get("/api/v1/account")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["user"]["user_id"] == str(auth_client.test_user.id)  # type: ignore[attr-defined]
+    assert "created_at" in data["user"]
+    assert "updated_at" in data["user"]
+    assert isinstance(data["assets"], list)
+
+
 # ─── Account Deletion ─────────────────────────────────────────────────────────
 
 

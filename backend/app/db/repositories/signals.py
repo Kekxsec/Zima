@@ -129,6 +129,21 @@ class SignalRepository:
         )
         return list(result.scalars().all())
 
+    async def get_by_signal_ids_for_user(
+        self,
+        user_id: uuid.UUID,
+        signal_ids: list[str],
+    ) -> list[Signal]:
+        if not signal_ids:
+            return []
+        result = await self.session.execute(
+            select(Signal).where(
+                Signal.user_id == user_id,
+                Signal.signal_id.in_(signal_ids),
+            )
+        )
+        return list(result.scalars().all())
+
     async def suppress(self, user_id: uuid.UUID, signal_id: str) -> bool:
         """Sets an open signal to suppressed. Returns True if a row was updated."""
         result = await self.session.execute(

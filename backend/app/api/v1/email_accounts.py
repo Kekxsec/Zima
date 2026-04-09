@@ -35,9 +35,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.api.dependencies import get_current_user, get_db_session
 from backend.app.auth.models import User
 from backend.app.core.crypto import CryptoError, decrypt_field
-from backend.app.core.enums import Tier, parse_tier
 from backend.app.core.rate_limit import limiter
-from backend.app.db.models.email_accounts import MboxUploadStatus
+from backend.app.db.models.email_accounts import DiscoveredAccount, MboxUploadStatus
 from backend.app.db.models.integrations import IntegrationProvider
 from backend.app.db.repositories.assets import AssetRepository
 from backend.app.db.repositories.discovered_accounts import DiscoveredAccountRepository
@@ -56,18 +55,6 @@ router = APIRouter(prefix="/email-accounts", tags=["email-accounts"])
 # Max mbox size: 100 MB
 _MAX_UPLOAD_BYTES: int = 100 * 1024 * 1024
 _UPLOAD_CHUNK_BYTES: int = 1024 * 1024
-
-_EMAIL_ACCOUNTS_ALLOWED_TIERS: frozenset[Tier] = frozenset(
-    {Tier.PLUS, Tier.PRO, Tier.BUSINESS}
-)
-
-
-def _require_email_accounts_tier(current_user: User) -> None:
-    if parse_tier(current_user.tier) not in _EMAIL_ACCOUNTS_ALLOWED_TIERS:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This feature requires a paid plan.",
-        )
 
 
 async def _read_upload_limited(file: UploadFile, max_bytes: int) -> bytes:
@@ -103,13 +90,10 @@ async def upload_mbox(
     """
     Accept an mbox file and queue it for processing.
 
-    - Tier-gated: Plus / Pro / Business only.
     - Rate-limited: 2 uploads per hour per user.
     - Idempotent: same file hash returns the existing upload record.
     - Raw bytes are processed in a background task and NEVER persisted to disk.
     """
-    _require_email_accounts_tier(current_user)
-
     # Validate content type loosely. Accept application/mbox, text/plain,
     # and application/octet-stream.
     content_type = (file.content_type or "").lower()
@@ -184,7 +168,6 @@ async def list_uploads(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, object]:
-    _require_email_accounts_tier(current_user)
     upload_repo = MboxUploadRepository(db)
     uploads = await upload_repo.list_for_user(
         user_id=current_user.id, limit=limit, offset=offset
@@ -202,7 +185,6 @@ async def get_upload_status(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, object]:
-    _require_email_accounts_tier(current_user)
     try:
         uid = uuid.UUID(upload_id)
     except ValueError as err:
@@ -233,7 +215,6 @@ async def list_accounts(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, object]:
-    _require_email_accounts_tier(current_user)
     account_repo = DiscoveredAccountRepository(db)
     accounts = await account_repo.list_for_user(
         user_id=current_user.id,
@@ -258,7 +239,6 @@ async def mark_account_reviewed(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, object]:
-    _require_email_accounts_tier(current_user)
     try:
         aid = uuid.UUID(account_id)
     except ValueError as err:
@@ -310,7 +290,9 @@ def _derive_alias_prefix(service_name: str) -> str:
 
 
 @router.post("/accounts/{account_id}/alias", status_code=201)
+@limiter.limit("5/minute")
 async def create_alias_for_account(
+    request: Request,
     account_id: str,
     body: CreateAliasRequest,
     current_user: User = Depends(get_current_user),
@@ -326,7 +308,6 @@ async def create_alias_for_account(
 
     Returns the created alias address.
     """
-    _require_email_accounts_tier(current_user)
     if body.provider not in _VALID_ALIAS_PROVIDERS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -440,7 +421,10 @@ async def create_alias_for_account(
 _GENERIC_HEADERS = [
     "priority_tier",
     "priority_label",
+    "priority_tags",
     "is_breached",
+    "recommended_next_step",
+    "verification_guidance",
     "display_name",
     "category",
     "email_used",
@@ -455,7 +439,7 @@ _GENERIC_HEADERS = [
 
 # 1Password CSV import format
 # https://support.1password.com/import-csv/
-_1PASSWORD_HEADERS = ["Title", "Username", "Password", "Website", "Notes"]
+_1PASSWORD_HEADERS = ["Title", "Username", "Password", "Website", "Tags", "Notes"]
 
 # Bitwarden CSV import format
 # https://bitwarden.com/help/condition-bitwarden-import/
@@ -474,20 +458,88 @@ _BITWARDEN_HEADERS = [
 ]
 
 
-def _build_notes(
+def _build_priority_tags(
     priority: AccountPriority,
     source_type: str,
     is_breached: bool,
     category: str | None,
+) -> list[str]:
+    tags = [
+        "zima",
+        "zima-review",
+        f"priority:p{priority.tier}",
+        f"priority:{priority.label.split(' ', maxsplit=1)[-1].lower()}",
+        f"signal:{source_type.replace('_', '-')}",
+    ]
+    if category:
+        tags.append(f"category:{category.lower()}")
+    if is_breached:
+        tags.append("breached")
+    if priority.tier == 1:
+        tags.append("fix-first")
+    elif priority.tier == 2:
+        tags.append("fix-next")
+    elif priority.tier == 3:
+        tags.append("review-after-import")
+    else:
+        tags.append("archive-or-delete")
+    return tags
+
+
+def _build_recommended_next_step(priority: AccountPriority, is_breached: bool) -> str:
+    if is_breached:
+        return (
+            "Import this login into your password manager, verify the service links, "
+            "then rotate the password and enable MFA."
+        )
+    if priority.tier <= 2:
+        return (
+            "Import this login into your password manager, verify the account is still "
+            "active, and secure it before lower-priority services."
+        )
+    return (
+        "Import this login into your password manager, decide whether you still need "
+        "the account, then archive or delete it if it is dormant."
+    )
+
+
+def _build_verification_guidance(
+    login_url: str | None,
+    password_reset_url: str | None,
+) -> str:
+    parts = [
+        "Verify the domain before opening any account link.",
+        "Check the login or reset URL with VirusTotal first.",
+        "Use manual review or an LLM-based second opinion only after the domain check"
+        " passes.",
+    ]
+    if login_url:
+        parts.append(f"Login URL: {login_url}")
+    if password_reset_url:
+        parts.append(f"Reset URL: {password_reset_url}")
+    return " | ".join(parts)
+
+
+def _build_notes(
+    priority: AccountPriority,
+    priority_tags: list[str],
+    source_type: str,
+    is_breached: bool,
+    category: str | None,
     email_count: int,
+    recommended_next_step: str,
+    verification_guidance: str,
     password_reset_url: str | None,
 ) -> str:
     parts = [
         f"Priority: {priority.label}",
         priority.reason,
+        f"Tags: {', '.join(priority_tags)}",
         f"Category: {category or 'unknown'}",
         f"Signal: {source_type}",
         f"Emails in inbox: {email_count}",
+        f"Next step: {recommended_next_step}",
+        verification_guidance,
     ]
     if is_breached:
         parts.append("⚠ Email found in a data breach")
@@ -518,8 +570,6 @@ async def export_accounts(
     Accounts are sorted P1 → P4 so the most critical appear first.
     The BOM (utf-8-sig) ensures Excel opens the file without encoding issues.
     """
-    _require_email_accounts_tier(current_user)
-
     account_repo = DiscoveredAccountRepository(db)
     signal_repo = SignalRepository(db)
 
@@ -531,7 +581,7 @@ async def export_accounts(
     )
 
     # Score and sort
-    scored: list[tuple[AccountPriority, object, str | None]] = []
+    scored: list[tuple[AccountPriority, DiscoveredAccount, str | None]] = []
     for account, category in accounts_with_category:
         is_breached = account.email_used in breached_emails
         p = priority_score(category, account.source_type, is_breached)
@@ -552,39 +602,57 @@ async def export_accounts(
     writer = csv.DictWriter(buf, fieldnames=headers, lineterminator="\r\n")
     writer.writeheader()
 
-    for priority, a, category in scored:  # type: ignore[assignment]
-        is_breached = a.email_used in breached_emails  # type: ignore[union-attr]
+    for priority, a, category in scored:
+        is_breached = a.email_used in breached_emails
+        priority_tags = _build_priority_tags(
+            priority=priority,
+            source_type=a.source_type,
+            is_breached=is_breached,
+            category=category,
+        )
+        recommended_next_step = _build_recommended_next_step(priority, is_breached)
+        verification_guidance = _build_verification_guidance(
+            a.login_url,
+            a.password_reset_url,
+        )
         notes = _build_notes(
             priority,
-            a.source_type,  # type: ignore[union-attr]
+            priority_tags,
+            a.source_type,
             is_breached,
             category,
-            a.email_count,  # type: ignore[union-attr]
-            a.password_reset_url,  # type: ignore[union-attr]
+            a.email_count,
+            recommended_next_step,
+            verification_guidance,
+            a.password_reset_url,
         )
 
         if export_format == "1password":
             writer.writerow(
                 {
-                    "Title": a.display_name,  # type: ignore[union-attr]
-                    "Username": a.email_used,  # type: ignore[union-attr]
+                    "Title": a.display_name,
+                    "Username": a.email_used,
                     "Password": "",
-                    "Website": a.login_url or "",  # type: ignore[union-attr]
+                    "Website": a.login_url or "",
+                    "Tags": ",".join(priority_tags),
                     "Notes": notes,
                 }
             )
         elif export_format == "bitwarden":
             writer.writerow(
                 {
-                    "folder": f"Zima / {priority.label}",
+                    "folder": (
+                        f"Zima / {priority.label} / "
+                        f"{'breached' if is_breached else 'review'}"
+                    ),
                     "favorite": "1" if priority.tier == 1 else "0",
                     "type": "login",
-                    "name": a.display_name,  # type: ignore[union-attr]
+                    "name": a.display_name,
                     "notes": notes,
                     "fields": "",
                     "reprompt": "0",
-                    "login_uri": a.login_url or "",  # type: ignore[union-attr]
-                    "login_username": a.email_used,  # type: ignore[union-attr]
+                    "login_uri": a.login_url or "",
+                    "login_username": a.email_used,
                     "login_password": "",
                     "login_totp": "",
                 }
@@ -594,16 +662,19 @@ async def export_accounts(
                 {
                     "priority_tier": priority.tier,
                     "priority_label": priority.label,
+                    "priority_tags": ",".join(priority_tags),
                     "is_breached": str(is_breached).lower(),
-                    "display_name": a.display_name,  # type: ignore[union-attr]
+                    "recommended_next_step": recommended_next_step,
+                    "verification_guidance": verification_guidance,
+                    "display_name": a.display_name,
                     "category": category or "unknown",
-                    "email_used": a.email_used,  # type: ignore[union-attr]
-                    "source_type": a.source_type,  # type: ignore[union-attr]
-                    "login_url": a.login_url or "",  # type: ignore[union-attr]
-                    "password_reset_url": a.password_reset_url or "",  # type: ignore[union-attr]
-                    "email_count": a.email_count,  # type: ignore[union-attr]
-                    "first_seen": _fmt_dt(a.first_seen_at),  # type: ignore[union-attr]
-                    "last_seen": _fmt_dt(a.last_seen_at),  # type: ignore[union-attr]
+                    "email_used": a.email_used,
+                    "source_type": a.source_type,
+                    "login_url": a.login_url or "",
+                    "password_reset_url": a.password_reset_url or "",
+                    "email_count": a.email_count,
+                    "first_seen": _fmt_dt(a.first_seen_at),
+                    "last_seen": _fmt_dt(a.last_seen_at),
                     "notes": priority.reason,
                 }
             )

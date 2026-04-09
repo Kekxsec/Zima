@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /Users/max/Zima && [ -f .venv/bin/ruff ] && .venv/bin/ruff check --fix $CLAUDE_FILE_PATHS 2>&1 | head -20 || true"
+          }
+        ]
+      }
+    ]
+  }
+}

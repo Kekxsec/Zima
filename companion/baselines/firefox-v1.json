@@ -1,0 +1,71 @@
+{
+  "browser": "firefox",
+  "baseline_version": "1",
+  "rules": [
+    {
+      "id": "firefox-dns-over-https",
+      "title": "DNS-over-HTTPS enabled",
+      "setting_key": "network.trr.mode",
+      "desired_value": 2,
+      "audit_method": "read_user_pref",
+      "apply_method": "write_user_pref",
+      "verify_method": "read_user_pref",
+      "requires_admin": false,
+      "risk_if_skipped": "DNS queries sent in plaintext, enabling ISP and network-level tracking",
+      "rollback_support": true,
+      "reference": "https://support.mozilla.org/en-US/kb/firefox-dns-over-https"
+    },
+    {
+      "id": "firefox-https-only-mode",
+      "title": "HTTPS-only mode enabled",
+      "setting_key": "dom.security.https_only_mode",
+      "desired_value": true,
+      "audit_method": "read_user_pref",
+      "apply_method": "write_user_pref",
+      "verify_method": "read_user_pref",
+      "requires_admin": false,
+      "risk_if_skipped": "Browser may load HTTP pages, exposing data to interception",
+      "rollback_support": true,
+      "reference": "https://support.mozilla.org/en-US/kb/https-only-prefs"
+    },
+    {
+      "id": "firefox-safe-browsing",
+      "title": "Safe Browsing (phishing/malware) enabled",
+      "setting_key": "browser.safebrowsing.malware.enabled",
+      "desired_value": true,
+      "audit_method": "read_user_pref",
+      "apply_method": "write_user_pref",
+      "verify_method": "read_user_pref",
+      "requires_admin": false,
+      "risk_if_skipped": "Phishing and malware sites not blocked",
+      "rollback_support": true,
+      "reference": "https://support.mozilla.org/en-US/kb/how-does-phishing-and-malware-protection-work"
+    },
+    {
+      "id": "firefox-tracking-protection",
+      "title": "Enhanced Tracking Protection set to strict",
+      "setting_key": "browser.contentblocking.category",
+      "desired_value": "strict",
+      "audit_method": "read_user_pref",
+      "apply_method": "write_user_pref",
+      "verify_method": "read_user_pref",
+      "requires_admin": false,
+      "risk_if_skipped": "Cross-site trackers may monitor browsing behaviour",
+      "rollback_support": true,
+      "reference": "https://support.mozilla.org/en-US/kb/enhanced-tracking-protection-firefox-desktop"
+    },
+    {
+      "id": "firefox-extension-auto-update",
+      "title": "Extension auto-update enabled",
+      "setting_key": "extensions.update.enabled",
+      "desired_value": true,
+      "audit_method": "read_user_pref",
+      "apply_method": "write_user_pref",
+      "verify_method": "read_user_pref",
+      "requires_admin": false,
+      "risk_if_skipped": "Extensions may have unpatched vulnerabilities",
+      "rollback_support": true,
+      "reference": "https://support.mozilla.org/en-US/kb/add-ons-are-not-automatically-updating"
+    }
+  ]
+}

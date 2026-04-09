@@ -1,8 +1,11 @@
 # backend/app/api/v1/assets.py
+import re
 from datetime import UTC, datetime
+from typing import Annotated
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, BeforeValidator, EmailStr, Field
 
 from backend.app.api.dependencies import (
     get_asset_service,
@@ -18,14 +21,32 @@ from backend.app.core.logging import get_logger
 from backend.app.core.rate_limit import get_real_ip, limiter
 from backend.app.email.service import EmailService
 
+_DOMAIN_RE = re.compile(
+    r"^(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$"
+)
+_CHROME_EXTENSION_ID_RE = re.compile(r"^[a-z]{32}$")
+_FIREFOX_GUID_RE = re.compile(r"^\{.+\}$")
+_EXTENSION_PATH_ID_RE = re.compile(r"/detail/(?:[^/]+/)?([a-z]{32})(?:/|$)")
+
+
+def _validate_domain(v: str) -> str:
+    v = v.strip().lower()
+    if not _DOMAIN_RE.match(v):
+        raise ValueError("Invalid domain name.")
+    return v
+
+
+DomainStr = Annotated[str, BeforeValidator(_validate_domain)]
+
 router = APIRouter(prefix="/assets", tags=["assets"])
 logger = get_logger(__name__)
 
 # Entity types a user can declare via this endpoint.
 # EMAIL and PHONE_NUMBER assets require OTP verification.
-# USERNAME assets may be stored as user-declared inventory but are not marked
-# verified automatically.
-_DECLARABLE_TYPES = {EntityType.USERNAME}
+# USERNAME assets are inventory-only. DEVICE and URL assets are scan inputs and
+# are treated as verified inventory because there is no ownership-proof flow for
+# them and they only affect the user's own scans.
+_DECLARABLE_TYPES = {EntityType.USERNAME, EntityType.DEVICE, EntityType.URL}
 
 _email_service = EmailService()
 
@@ -41,6 +62,77 @@ class AssetOut(BaseModel):
     value: str
     is_verified: bool
     created_at: datetime
+
+
+def _normalise_declared_value(entity_type: EntityType, raw_value: str) -> str:
+    value = raw_value.strip()
+    if not value:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Asset value must not be empty.",
+        )
+
+    if entity_type == EntityType.USERNAME:
+        return value.lower()
+
+    if entity_type == EntityType.DEVICE:
+        if len(value) > 120:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Device label is too long.",
+            )
+        return value
+
+    if entity_type == EntityType.URL:
+        return _normalise_browser_extension_value(value)
+
+    return value
+
+
+def _normalise_browser_extension_value(raw_value: str) -> str:
+    value = raw_value.strip()
+    lowered = value.lower()
+
+    # Bare 32-char lowercase ID → Chrome extension ID
+    if _CHROME_EXTENSION_ID_RE.fullmatch(lowered):
+        return f"{lowered}:latest:chrome"
+
+    # Firefox add-on ID: @-prefixed or GUID
+    if "@" in value or _FIREFOX_GUID_RE.fullmatch(value):
+        return f"{value}:latest:firefox"
+
+    # URL input: parse strictly — only https, exact hostname match
+    parsed = urlparse(value if "://" in value else f"https://{value}")
+    if parsed.scheme not in ("https", ""):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Store URLs must use HTTPS.",
+        )
+
+    hostname = (parsed.hostname or "").lower()
+
+    if hostname == "microsoftedge.microsoft.com":
+        m = _EXTENSION_PATH_ID_RE.search(parsed.path.lower())
+        if m:
+            return f"{m.group(1)}:latest:edge"
+
+    if hostname == "chromewebstore.google.com":
+        m = _EXTENSION_PATH_ID_RE.search(parsed.path.lower())
+        if m:
+            return f"{m.group(1)}:latest:chrome"
+
+    if hostname in ("addons.mozilla.org", "addons.thunderbird.net"):
+        m = re.search(r"/(?:firefox|addon)/([^/?#]+)/?", parsed.path.lower())
+        if m:
+            return f"{m.group(1)}:latest:firefox"
+
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail=(
+            "Browser extension input must be a Chrome/Edge extension ID, a "
+            "Firefox add-on ID, or a supported store URL."
+        ),
+    )
 
 
 class EmailOTPRequest(BaseModel):
@@ -61,17 +153,22 @@ class PhoneOTPVerify(BaseModel):
     code: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
 
 
+class DomainOTPRequest(BaseModel):
+    domain: DomainStr
+
+
+class DomainOTPVerify(BaseModel):
+    domain: DomainStr
+    code: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
+
+
 @router.post("", response_model=AssetOut, status_code=status.HTTP_201_CREATED)
 async def declare_asset(
     payload: AssetDeclarePayload,
     current_user: User = Depends(get_current_user),
     asset_service: AssetService = Depends(get_asset_service),
 ) -> AssetOut:
-    """Register a username asset for the current user.
-
-    User-declared assets stored via this endpoint are inventory only and are
-    not marked verified automatically.
-    """
+    """Register a user-supplied asset for the current user."""
     if payload.entity_type not in _DECLARABLE_TYPES:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -81,13 +178,10 @@ async def declare_asset(
             ),
         )
 
-    value = payload.value.strip().lower()
-    if not value:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Asset value must not be empty.",
-        )
+    value = _normalise_declared_value(payload.entity_type, payload.value)
 
+    # DEVICE and URL assets have no ownership-proof flow; mark as declared
+    # (is_verified=False). Rule 5: only OTP flows may set is_verified=True.
     asset = await asset_service.register_declared_asset(
         user_id=current_user.id,
         entity_type=str(payload.entity_type),
@@ -237,6 +331,83 @@ async def verify_email_asset_otp(
     asset = await asset_service.register_verified_email(
         user_id=current_user.id,
         email=email,
+    )
+    return AssetOut(
+        asset_id=str(asset.id),
+        entity_type=asset.entity_type,
+        value=asset.value,
+        is_verified=asset.is_verified,
+        created_at=asset.created_at
+        if asset.created_at.tzinfo
+        else asset.created_at.replace(tzinfo=UTC),
+    )
+
+
+@router.post("/domain/otp/request", status_code=202)
+@limiter.limit("3/15minutes")
+async def request_domain_asset_otp(
+    request: Request,
+    body: DomainOTPRequest,
+    current_user: User = Depends(get_current_user),
+    auth_service: AuthService = Depends(get_auth_service),
+) -> dict[str, str]:
+    """Request an OTP to verify ownership of a domain.
+
+    Sends a 6-digit code to admin@<domain>. The user must submit that code to
+    /assets/domain/otp/verify to confirm control and make the domain scannable.
+    Always returns 202 regardless of rate-limit state to prevent enumeration.
+    """
+    domain = body.domain
+    client_ip = get_real_ip(request)
+    raw_code = await auth_service.request_asset_domain_otp(
+        domain,
+        client_ip,
+        current_user,
+    )
+    if raw_code is not None:
+        if not settings.is_production:
+            logger.info(
+                "assets.dev_domain_otp",
+                domain=domain,
+                raw_code=raw_code,
+            )
+        await _email_service.send_domain_otp(domain, raw_code)
+    return {
+        "message": (
+            f"If admin@{domain} is reachable, a verification code is on its way."
+        )
+    }
+
+
+@router.post("/domain/otp/verify", response_model=AssetOut, status_code=200)
+@limiter.limit("10/15minutes")
+async def verify_domain_asset_otp(
+    request: Request,
+    body: DomainOTPVerify,
+    current_user: User = Depends(get_current_user),
+    auth_service: AuthService = Depends(get_auth_service),
+    asset_service: AssetService = Depends(get_asset_service),
+) -> AssetOut:
+    """Verify a domain OTP and register the domain as a verified asset.
+
+    On success the domain is eligible for infrastructure scans.
+    Returns 401 for invalid or expired codes.
+    """
+    domain = body.domain
+    success = await auth_service.verify_asset_domain_otp(
+        domain,
+        body.code,
+        current_user,
+    )
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired code.",
+        )
+    asset = await asset_service.register_verified_asset(
+        user_id=current_user.id,
+        entity_type="domain",
+        value=domain,
     )
     return AssetOut(
         asset_id=str(asset.id),

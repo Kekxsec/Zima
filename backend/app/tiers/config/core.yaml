@@ -3,3 +3,5 @@ enabled_domains:
   - accounts
   - device
   - browser
+  - infrastructure
+  - domain

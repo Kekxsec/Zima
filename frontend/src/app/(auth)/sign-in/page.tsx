@@ -20,7 +20,9 @@ function SignInForm() {
   const searchParams = useSearchParams()
   const next = sanitizeNext(searchParams.get("next"))
   const setAuthenticated = useAuthStore((s) => s.setAuthenticated)
-  const onboardingCompleted = useOnboardingStore((s) => s.completed)
+  const resetOnboarding = useOnboardingStore((s) => s.reset)
+  const setCompleted = useOnboardingStore((s) => s.setCompleted)
+  const setScanId = useOnboardingStore((s) => s.setScanId)
 
   const [step, setStep] = useState<Step>("email")
   const [email, setEmail] = useState("")
@@ -51,21 +53,37 @@ function SignInForm() {
         email: email.trim(),
         code,
       })
-      setAuthenticated(true)
-      if (!onboardingCompleted) {
-        try {
-          const scans = await api.get<ScanListResponse>("/scans/?limit=1")
-          if (scans.total === 0) {
-            router.push("/onboarding")
-            return
-          }
-        } catch {
-          // Can't confirm prior scans exist — route new users to onboarding
-          router.push("/onboarding")
-          return
+
+      // Fetch scan history BEFORE mutating the store so we can compute the
+      // target route atomically. setAuthenticated fires after all state is set.
+      let targetRoute = "/onboarding"
+      try {
+        const scanHistory = await api.get<ScanListResponse>("/scans/?limit=20")
+        const scans = scanHistory.scans ?? []
+        const hasCompletedScan = scans.some((scan) => scan.status === "completed")
+        const activeScan =
+          scans.find((scan) => scan.status === "running") ??
+          scans.find((scan) => scan.status === "pending") ??
+          null
+
+        if (hasCompletedScan) {
+          setCompleted(true)
+          setScanId(activeScan?.id ?? null)
+          targetRoute = next
+        } else if (activeScan) {
+          resetOnboarding()
+          setScanId(activeScan.id)
+          targetRoute = "/onboarding/scan"
+        } else {
+          resetOnboarding()
         }
+      } catch {
+        // Can't confirm prior scans — route to onboarding without wiping
+        // any existing store state (avoids discarding an in-progress scan id).
       }
-      router.push(next)
+
+      setAuthenticated(true)
+      router.push(targetRoute)
     } catch (err) {
       toast.error(err instanceof ApiRequestError ? err.detail : "Invalid code.")
       setOtp(["", "", "", "", "", ""])
@@ -104,7 +122,7 @@ function SignInForm() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-950 px-4">
+    <div className="zima-stage-shell min-h-screen flex items-center justify-center px-4">
       {/* Subtle background glow */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full bg-primary/5 blur-3xl" />

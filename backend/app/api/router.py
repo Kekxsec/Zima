@@ -6,6 +6,7 @@ from backend.app.api.v1 import (
     assets,
     auth,
     billing,
+    companion,
     email_accounts,
     findings,
     health,
@@ -39,3 +40,4 @@ api_router.include_router(legal.router, prefix="/api/v1")
 api_router.include_router(email_accounts.router, prefix="/api/v1")
 api_router.include_router(imports.router, prefix="/api/v1")
 api_router.include_router(integrations.router, prefix="/api/v1")
+api_router.include_router(companion.router, prefix="/api/v1")

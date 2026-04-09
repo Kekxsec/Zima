@@ -1,39 +1,49 @@
 # backend/app/providers/tools/whatsmyname/client.py
-"""WhatsmyName — username enumeration across 500+ sites (CLI wrapper)."""
+"""Sherlock — username enumeration across 400+ sites (CLI wrapper).
+
+Provider name kept as ``tool_whatsmyname`` for stable identifier compatibility.
+"""
 
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import re
 import shutil
 import signal
 import subprocess
+import tempfile
 from typing import Any
 
 from backend.app.providers.base.client import BaseProviderClient
 from backend.app.providers.base.exceptions import ProviderError
 
-_TOOL_NAME = "whatsmyname"
-_TIMEOUT_SECONDS = 60
+_TOOL_NAME = "sherlock"
+_TIMEOUT_SECONDS = 90
 
 # Usernames: alphanumeric, dots, underscores, hyphens; 1–64 chars.
 _USERNAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._\-]{0,63}$")
 
-# Match lines like: [+] SiteName - https://site.com/username
-# WhatsmyName outputs: [+] Twitter - https://twitter.com/user
-_FOUND_PATTERN = re.compile(r"^\[\+\]\s+(.+?)\s+-\s+(https?://\S+)", re.IGNORECASE)
+# Strip ANSI escape codes (all CSI sequences, not just SGR).
+_ANSI_RE = re.compile(r"\x1b\[[^@-~]*[@-~]")
+
+# Match lines like: [+] SiteName: https://site.com/username
+_FOUND_PATTERN = re.compile(r"^\[\+\]\s+(.+?):\s+(https?://\S+)", re.IGNORECASE)
+
+_log = logging.getLogger(__name__)
 
 
 class WhatsmyNameProvider(BaseProviderClient):
-    """WhatsmyName - username-to-account enumeration across 500+ sites.
+    """Sherlock - username enumeration across 400+ sites.
 
-    Runs ``whatsmyname -u {username}`` and parses ``[+]`` output lines
-    to discover accounts registered under the given username.
+    Runs ``sherlock --print-found {username}`` and parses ``[+]`` output
+    lines to discover accounts registered under the given username.
 
-    Requires whatsmyname to be installed and in PATH:
-        pip install whatsmyname
-        # or: git clone https://github.com/WebBreacher/WhatsMyName
+    Provider name is ``tool_whatsmyname`` for backward compatibility.
+
+    Requires sherlock to be installed and in PATH:
+        pip install sherlock-project
     """
 
     name = "tool_whatsmyname"
@@ -53,7 +63,7 @@ class WhatsmyNameProvider(BaseProviderClient):
             )
 
         binary = _resolve_binary()
-        discovered = await _run_whatsmyname_async(username, binary)
+        discovered = await _run_sherlock_async(username, binary)
 
         for site_name, url in discovered:
             findings.append(
@@ -86,57 +96,76 @@ def _resolve_binary() -> str:
     if binary:
         return binary
     raise ProviderError(
-        message=("whatsmyname is not installed. " "Install: pip install whatsmyname"),
+        message=("sherlock is not installed. " "Install: pip install sherlock-project"),
         retryable=False,
     )
 
 
-async def _run_whatsmyname_async(username: str, binary: str) -> list[tuple[str, str]]:
-    """Run whatsmyname in a thread pool with a hard blocking timeout."""
-    cmd = [binary, "-u", username]
+async def _run_sherlock_async(username: str, binary: str) -> list[tuple[str, str]]:
+    """Run sherlock in a thread pool with a hard blocking timeout.
+
+    Sherlock writes ``{username}.txt`` to its working directory by default.
+    We run it inside a TemporaryDirectory so the file is isolated and
+    automatically cleaned up — no scan artefacts land in the repo root or
+    any other persistent path.
+    """
 
     def _run() -> subprocess.CompletedProcess[bytes]:
-        with subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            start_new_session=True,
-        ) as proc:
-            try:
-                stdout, stderr = proc.communicate(timeout=_TIMEOUT_SECONDS)
-            except subprocess.TimeoutExpired:
+        # cwd=tmpdir keeps sherlock's output file out of the repo root.
+        with tempfile.TemporaryDirectory(prefix="zima_sherlock_") as tmpdir:
+            cmd = [binary, "--print-found", username]
+            with subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
+                cwd=tmpdir,
+            ) as proc:
                 try:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                try:
-                    proc.communicate(timeout=5)
+                    stdout, stderr = proc.communicate(timeout=_TIMEOUT_SECONDS)
                 except subprocess.TimeoutExpired:
-                    pass
-                raise
+                    # SIGTERM first, then SIGKILL after a short grace period.
+                    try:
+                        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        proc.communicate(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        try:
+                            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                        proc.communicate(timeout=5)
+                    raise
+            if stderr:
+                _log.debug(
+                    "sherlock stderr for %r: %s",
+                    username,
+                    stderr.decode(errors="replace"),
+                )
         return subprocess.CompletedProcess(
             args=cmd,
             returncode=proc.returncode,
             stdout=stdout,
-            stderr=stderr,
+            stderr=b"",
         )
 
     try:
         result = await asyncio.to_thread(_run)
     except subprocess.TimeoutExpired as exc:
         raise ProviderError(
-            message=f"whatsmyname timed out after {_TIMEOUT_SECONDS}s for '{username}'",
+            message=f"sherlock timed out after {_TIMEOUT_SECONDS}s for '{username}'",
             retryable=True,
         ) from exc
     except FileNotFoundError as exc:
         raise ProviderError(
-            message="whatsmyname binary not found at runtime",
+            message="sherlock binary not found at runtime",
             retryable=False,
         ) from exc
 
-    output = result.stdout.decode(errors="replace") + result.stderr.decode(
-        errors="replace"
-    )
+    # Parse stdout only; stderr was already logged separately above.
+    output = _ANSI_RE.sub("", result.stdout.decode(errors="replace"))
 
     found: list[tuple[str, str]] = []
     for line in output.splitlines():

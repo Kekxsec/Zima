@@ -1,214 +1,301 @@
----
-title: "MVP Implementation Plan — Stages 10–16"
-tags: [zima, mvp, implementation, stages]
-type: implementation_plan
-created: 2026-03-22
-updated: 2026-04-06
----
+Two providers need updating:
+  - epieos → DEFERRED — no public API, ToS prohibits automation, enterprise contract required. Remove from
+  registry.
+  - accounts (soxoj) → DEFERRED — GitHub repo 404. Replaced by mailcat + holehe + maigret pipeline.
 
-# MVP Implementation Plan — Stages 10–16
+  ---
+  Full Confirmed Provider Scope at Launch
 
-This document is the single authoritative source for launch scope.
-It supersedes the individual wave docs (`wave-0` through `wave-3`), which remain as research background.
+  Identity Pillar — P0/P1
 
-## Deferred — Not In Launch Scope
+  ┌────────────────┬────────────────────────────────┬─────────────────────────┬─────────┬──────────────┐
+  │    Provider    │              Path              │         Module          │ Priorit │    Status    │
+  │                │                                │                         │    y    │              │
+  ├────────────────┼────────────────────────────────┼─────────────────────────┼─────────┼──────────────┤
+  │                │                                │                         │         │ client done, │
+  │ hibp           │ providers/breach/hibp          │ breach_monitor          │ P0      │  no schema/m │
+  │                │                                │                         │         │ apper        │
+  ├────────────────┼────────────────────────────────┼─────────────────────────┼─────────┼──────────────┤
+  │                │                                │ breach_monitor,         │         │ client done, │
+  │ dehashed       │ providers/breach/dehashed      │ credential_exposure     │ P0      │  no schema/m │
+  │                │                                │                         │         │ apper        │
+  ├────────────────┼────────────────────────────────┼─────────────────────────┼─────────┼──────────────┤
+  │                │                                │                         │         │ client done, │
+  │ leakcheck      │ providers/breach/leakcheck     │ credential_exposure     │ P0      │  no schema/m │
+  │                │                                │                         │         │ apper        │
+  ├────────────────┼────────────────────────────────┼─────────────────────────┼─────────┼──────────────┤
+  │ breachdirector │ providers/breach/breachdirecto │                         │         │ client done, │
+  │ y              │ ry                             │ breach_monitor          │ P1      │  no schema/m │
+  │                │                                │                         │         │ apper        │
+  ├────────────────┼────────────────────────────────┼─────────────────────────┼─────────┼──────────────┤
+  │                │                                │                         │         │ client done, │
+  │ hudson_rock    │ providers/breach/hudson_rock   │ stealer_log_exposure    │ P1      │  no schema/m │
+  │                │                                │                         │         │ apper        │
+  ├────────────────┼────────────────────────────────┼─────────────────────────┼─────────┼──────────────┤
+  │                │                                │ account_enumeration_ris │         │ client done, │
+  │ emailrep       │ providers/reputation/emailrep  │ k                       │ P1      │  no schema/m │
+  │                │                                │                         │         │ apper        │
+  ├────────────────┼────────────────────────────────┼─────────────────────────┼─────────┼──────────────┤
+  │                │                                │ account_inventory, acco │         │ client done, │
+  │ holehe         │ providers/tools/holehe         │ unt_enumeration_risk    │ P1      │  no schema/m │
+  │                │                                │                         │         │ apper        │
+  ├────────────────┼────────────────────────────────┼─────────────────────────┼─────────┼──────────────┤
+  │                │                                │                         │         │ client done, │
+  │ maigret        │ providers/tools/maigret        │ username_exposure       │ P1      │  no schema/m │
+  │                │                                │                         │         │ apper        │
+  ├────────────────┼────────────────────────────────┼─────────────────────────┼─────────┼──────────────┤
+  │ mailcat        │ providers/tools/mailcat        │ account_inventory       │ P1      │ not          │
+  │                │                                │                         │         │ implemented  │
+  ├────────────────┼────────────────────────────────┼─────────────────────────┼─────────┼──────────────┤
+  │ whatsmyname    │ providers/tools/whatsmyname    │ account_inventory,      │ P1      │ not          │
+  │                │                                │ alias_correlation       │         │ implemented  │
+  ├────────────────┼────────────────────────────────┼─────────────────────────┼─────────┼──────────────┤
+  │ intelx         │ providers/threat_intel/intelx  │ breach_monitor, darkweb │ P1      │ client stub  │
+  │                │                                │ _identity_monitor       │         │ only         │
+  ├────────────────┼────────────────────────────────┼─────────────────────────┼─────────┼──────────────┤
+  │ socid_extracto │ providers/tools/socid_extracto │ username_exposure,      │         │ not          │
+  │ r              │ r                              │ account_inventory       │ P2      │ implemented  │
+  │                │                                │ (enrichment)            │         │              │
+  ├────────────────┼────────────────────────────────┼─────────────────────────┼─────────┼──────────────┤
+  │ emailformat    │ providers/social/emailformat   │ alias_correlation       │ P2      │ client stub  │
+  │                │                                │                         │         │ only         │
+  ├────────────────┼────────────────────────────────┼─────────────────────────┼─────────┼──────────────┤
+  │ gravatar       │ providers/social/gravatar      │ public_profile_scan     │ P2      │ client stub  │
+  │                │                                │                         │         │ only         │
+  ├────────────────┼────────────────────────────────┼─────────────────────────┼─────────┼──────────────┤
+  │ skymem         │ providers/social/skymem        │ username_exposure       │ P2      │ client stub  │
+  │                │                                │                         │         │ only         │
+  ├────────────────┼────────────────────────────────┼─────────────────────────┼─────────┼──────────────┤
+  │ emailcrawlr    │ providers/social/emailcrawlr   │ username_exposure       │ P2      │ client stub  │
+  │                │                                │                         │         │ only         │
+  └────────────────┴────────────────────────────────┴─────────────────────────┴─────────┴──────────────┘
 
-These were evaluated and explicitly removed:
+  Identity Pillar — Optional at Launch (P2/P3)
 
-- **epieos** — no public API, ToS prohibits automation, enterprise contract required
-- **accounts (soxoj)** — GitHub repo 404, replaced by mailcat + holehe + maigret pipeline
-- **skymem** — HTML scraping only, no official API
-- **truecaller** — no commercial API available
-- **twilio** — OTP-only auth use only; does not belong in the provider layer
-- **socid_extractor** — P2 enrichment, post-launch
-- **ahmia / darksearch** — deferred; IntelX covers the dark-web story at launch
-- **sociallinks** — commercial identity graph, requires trial contract
-- **huginn_muninn** — DHCP fingerprint DB, P3
-- **local LLM classification** — post-launch; requires production misclassification data first
+  ┌────────────┬──────────────────────────────┬──────────────────────────┬──────────┐
+  │  Provider  │             Path             │          Module          │ Priority │
+  ├────────────┼──────────────────────────────┼──────────────────────────┼──────────┤
+  │ numverify  │ providers/phone/numverify    │ phone_exposure           │ P2       │
+  ├────────────┼──────────────────────────────┼──────────────────────────┼──────────┤
+  │ truecaller │ providers/phone/truecaller   │ phone_exposure           │ P2       │
+  ├────────────┼──────────────────────────────┼──────────────────────────┼──────────┤
+  │ callername │ providers/phone/callername   │ phone_exposure           │ P2       │
+  ├────────────┼──────────────────────────────┼──────────────────────────┼──────────┤
+  │ ahmia      │ providers/darkweb/ahmia      │ darkweb_identity_monitor │ P3       │
+  ├────────────┼──────────────────────────────┼──────────────────────────┼──────────┤
+  │ darksearch │ providers/darkweb/darksearch │ darkweb_identity_monitor │ P3       │
+  └────────────┴──────────────────────────────┴──────────────────────────┴──────────┘
 
----
+  ---
+  Device Pillar — P0 (local subprocess, agent-dependent)
 
-## Full Launch Provider Scope
+  ┌───────────────────┬──────────────────────────────────┬──────────────────────┬─────────┬────────────┐
+  │     Provider      │               Path               │        Module        │ Priorit │   Status   │
+  │                   │                                  │                      │    y    │            │
+  ├───────────────────┼──────────────────────────────────┼──────────────────────┼─────────┼────────────┤
+  │                   │                                  │ os_security,         │         │ not implem │
+  │ osquery           │ providers/tools/osquery          │ patch_status, softwa │ P0      │ ented      │
+  │                   │                                  │ re_vulnerability     │         │            │
+  ├───────────────────┼──────────────────────────────────┼──────────────────────┼─────────┼────────────┤
+  │ posture           │ providers/tools/posture          │ device baseline      │ P0      │ not implem │
+  │                   │                                  │                      │         │ ented      │
+  ├───────────────────┼──────────────────────────────────┼──────────────────────┼─────────┼────────────┤
+  │ macos_native      │ providers/tools/macos_native     │ device baseline      │ P0      │ not implem │
+  │                   │                                  │                      │         │ ented      │
+  ├───────────────────┼──────────────────────────────────┼──────────────────────┼─────────┼────────────┤
+  │ windows_native    │ providers/tools/windows_native   │ device baseline      │ P0      │ not implem │
+  │                   │                                  │                      │         │ ented      │
+  ├───────────────────┼──────────────────────────────────┼──────────────────────┼─────────┼────────────┤
+  │ linux_native      │ providers/tools/linux_native     │ device baseline      │ P0      │ not implem │
+  │                   │                                  │                      │         │ ented      │
+  ├───────────────────┼──────────────────────────────────┼──────────────────────┼─────────┼────────────┤
+  │ lynis             │ providers/tools/lynis            │ os_security,         │ P1      │ not implem │
+  │                   │                                  │ firewall_status      │         │ ented      │
+  ├───────────────────┼──────────────────────────────────┼──────────────────────┼─────────┼────────────┤
+  │ trivy             │ providers/tools/trivy            │ software_vulnerabili │ P1      │ not implem │
+  │                   │                                  │ ty                   │         │ ented      │
+  ├───────────────────┼──────────────────────────────────┼──────────────────────┼─────────┼────────────┤
+  │ grype             │ providers/tools/grype            │ software_vulnerabili │ P1      │ not implem │
+  │                   │                                  │ ty                   │         │ ented      │
+  ├───────────────────┼──────────────────────────────────┼──────────────────────┼─────────┼────────────┤
+  │ oui_master_databa │ providers/tools/oui_master_datab │ device_inventory     │ P2      │ research   │
+  │ se                │ ase                              │ (offline enrichment) │         │ complete   │
+  ├───────────────────┼──────────────────────────────────┼──────────────────────┼─────────┼────────────┤
+  │ syft              │ providers/tools/syft             │ software_inventory   │ P2      │ not implem │
+  │                   │                                  │                      │         │ ented      │
+  └───────────────────┴──────────────────────────────────┴──────────────────────┴─────────┴────────────┘
 
-### Identity Pillar
+  ---
+  Browser Pillar — P0 (local collector-dependent)
 
-| Provider | Path | Module(s) | Wave | Priority |
-|---|---|---|---|---|
-| hibp | `providers/breach/hibp` | `breach_monitor` | 0 | P0 |
-| dehashed | `providers/breach/dehashed` | `breach_monitor`, `credential_exposure` | 1 | P0 |
-| leakcheck | `providers/breach/leakcheck` | `credential_exposure` | 1 | P0 |
-| breachdirectory | `providers/breach/breachdirectory` | `breach_monitor` | 1 | P1 |
-| hudson_rock | `providers/breach/hudson_rock` | `stealer_log_exposure` | 1 | P1 |
-| emailrep | `providers/reputation/emailrep` | `account_enumeration_risk` | 1 | P1 |
-| holehe | `providers/tools/holehe` | `account_inventory`, `account_enumeration_risk` | 1 | P1 |
-| maigret | `providers/tools/maigret` | `username_exposure` | 1 | P1 |
-| whatsmyname | `providers/tools/whatsmyname` | `account_inventory`, `alias_correlation` | 1 | P1 |
-| mailcat | `providers/tools/mailcat` | `account_inventory` | 1 | P1 |
-| intelx | `providers/threat_intel/intelx` | `darkweb_identity_monitor` | 2 | P1 |
-| emailformat | `providers/social/emailformat` | `alias_correlation` | 2 | P2 |
-| gravatar | `providers/social/gravatar` | `public_profile_scan` | 2 | P2 |
-| emailcrawlr | `providers/social/emailcrawlr` | `public_profile_scan` | 2 | P2 |
-| numverify | `providers/phone/numverify` | `phone_exposure` | 3 | P2 |
-| callername | `providers/phone/callername` | `phone_exposure` | 3 | P2 |
+  ┌────────────────────────┬────────────────────────────────────┬──────────────────┬────────┬──────────┐
+  │        Provider        │                Path                │      Module      │ Priori │  Status  │
+  │                        │                                    │                  │   ty   │          │
+  ├────────────────────────┼────────────────────────────────────┼──────────────────┼────────┼──────────┤
+  │ browser_extension_dete │ providers/tools/browser_extension_ │ extension_risk   │ P0     │ not impl │
+  │ ctor                   │ detector                           │                  │        │ emented  │
+  ├────────────────────────┼────────────────────────────────────┼──────────────────┼────────┼──────────┤
+  │ get_browser_extension_ │ providers/tools/get_browser_extens │ extension_risk   │ P0     │ not impl │
+  │ info                   │ ion_info                           │                  │        │ emented  │
+  ├────────────────────────┼────────────────────────────────────┼──────────────────┼────────┼──────────┤
+  │ malicious_extension_se │ providers/tools/malicious_extensio │ extension_risk   │ P0     │ not impl │
+  │ ntry                   │ n_sentry                           │                  │        │ emented  │
+  ├────────────────────────┼────────────────────────────────────┼──────────────────┼────────┼──────────┤
+  │ chromium_enterprise_po │ providers/tools/chromium_enterpris │ browser_configur │ P1     │ not impl │
+  │ licies                 │ e_policies                         │ ation            │        │ emented  │
+  ├────────────────────────┼────────────────────────────────────┼──────────────────┼────────┼──────────┤
+  │ firefox_enterprise_pol │ providers/tools/firefox_enterprise │ browser_configur │ P1     │ not impl │
+  │ icies                  │ _policies                          │ ation            │        │ emented  │
+  ├────────────────────────┼────────────────────────────────────┼──────────────────┼────────┼──────────┤
+  │                        │                                    │                  │        │ client   │
+  │ crxcavator             │ providers/threat_intel/crxcavator  │ extension_risk   │ P1     │ stub     │
+  │                        │                                    │                  │        │ only     │
+  ├────────────────────────┼────────────────────────────────────┼──────────────────┼────────┼──────────┤
+  │ chrome_web_store_api   │ providers/cloud/chrome_web_store_a │ extension_risk   │ P2     │ not impl │
+  │                        │ pi                                 │                  │        │ emented  │
+  ├────────────────────────┼────────────────────────────────────┼──────────────────┼────────┼──────────┤
+  │ firefox_addons_site_ap │ providers/cloud/firefox_addons_sit │ extension_risk   │ P2     │ not impl │
+  │ i                      │ e_api                              │                  │        │ emented  │
+  └────────────────────────┴────────────────────────────────────┴──────────────────┴────────┴──────────┘
 
-### Device Pillar
+  ---
+  Infrastructure (Wave 2 — researched, selective)
 
-| Provider | Path | Module(s) | Wave | Priority |
-|---|---|---|---|---|
-| osquery | `providers/tools/osquery` | `os_security`, `patch_status`, `software_vulnerability` | 0 | P0 |
-| posture | `providers/tools/posture` | device baseline | 1 | P0 |
-| macos_native | `providers/tools/macos_native` | device baseline | 1 | P0 |
-| windows_native | `providers/tools/windows_native` | device baseline | 1 | P0 |
-| linux_native | `providers/tools/linux_native` | device baseline | 1 | P0 |
-| lynis | `providers/tools/lynis` | `os_security`, `firewall_status` | 2 | P1 |
-| trivy | `providers/tools/trivy` | `software_vulnerability` | 2 | P1 |
-| grype | `providers/tools/grype` | `software_vulnerability` | 2 | P1 |
-| syft | `providers/tools/syft` | `software_inventory` | 2 | P2 |
-| oui_master_database | `providers/tools/oui_master_database` | `device_inventory` (offline enrichment) | 2 | P2 |
+  ┌──────────────┬───────────────────────────────┬───────────────────────────────┬──────────┬────────────┐
+  │   Provider   │             Path              │            Module             │ Priority │   Status   │
+  ├──────────────┼───────────────────────────────┼───────────────────────────────┼──────────┼────────────┤
+  │ leakix       │ providers/threat_intel/leakix │ infrastructure_exposure       │ Wave 2   │ research   │
+  │              │                               │                               │          │ complete   │
+  ├──────────────┼───────────────────────────────┼───────────────────────────────┼──────────┼────────────┤
+  │ frankenstein │ providers/tools/frankenstein  │ infrastructure_exposure,      │ Wave 2   │ research   │
+  │              │                               │ browser_configuration         │          │ complete   │
+  └──────────────┴───────────────────────────────┴───────────────────────────────┴──────────┴────────────┘
 
-### Browser Pillar
+  ---
+  Post-Launch / Enterprise
 
-| Provider | Path | Module(s) | Wave | Priority |
-|---|---|---|---|---|
-| browser_extension_detector | `providers/tools/browser_extension_detector` | `extension_risk` | 0 | P0 |
-| get_browser_extension_info | `providers/tools/get_browser_extension_info` | `extension_risk` | 0 | P0 |
-| malicious_extension_sentry | `providers/tools/malicious_extension_sentry` | `extension_risk` | 1 | P1 |
-| chromium_enterprise_policies | `providers/tools/chromium_enterprise_policies` | `browser_configuration` | 2 | P1 |
-| firefox_enterprise_policies | `providers/tools/firefox_enterprise_policies` | `browser_configuration` | 2 | P1 |
-| crxcavator | `providers/threat_intel/crxcavator` | `extension_risk` | 2 | P1 |
-| chrome_web_store_api | `providers/cloud/chrome_web_store_api` | `extension_risk` | 3 | P2 |
-| firefox_addons_site_api | `providers/cloud/firefox_addons_site_api` | `extension_risk` | 3 | P2 |
+  ┌───────────────┬───────────────────────────────────────────────────────────────────────────────────────┐
+  │   Provider    │                                         Notes                                         │
+  ├───────────────┼───────────────────────────────────────────────────────────────────────────────────────┤
+  │ sociallinks   │ Commercial identity graph, 500+ sources — requires trial contract                     │
+  ├───────────────┼───────────────────────────────────────────────────────────────────────────────────────┤
+  │ huginn_muninn │ DHCP fingerprint DB, 11M records — unique value but P3                                │
+  ├───────────────┼───────────────────────────────────────────────────────────────────────────────────────┤
+  │ twilio        │ Currently in registry but research places it post-OTP-only scope — clarify if keeping │
+  │               │  for phone enrichment or removing                                                     │
+  └───────────────┴───────────────────────────────────────────────────────────────────────────────────────┘
 
-### Infrastructure
+  ---
+  Revised Staged Implementation Plan
 
-| Provider | Path | Module(s) | Wave | Priority |
-|---|---|---|---|---|
-| leakix | `providers/threat_intel/leakix` | `infrastructure_exposure` | 2 | Wave 2 |
-| frankenstein | `providers/tools/frankenstein` | `infrastructure_exposure`, `browser_configuration` | 2 | Wave 2 |
+  Stage 10 — Complete the Identity Provider Layer
 
----
+  10a — Breach providers schema/mapper (HIBP, DeHashed, LeakCheck, HudsonRock, BreachDirectory)
+  - Introduce ProviderFinding typed dataclass in base/models.py
+  - schemas.py + mapper.py for each
+  - Fix async bug in Numverify + Twilio
 
-## Staged Implementation Plan
+  10b — Social/reputation schema/mapper (EmailRep, EmailFormat, Gravatar, Skymem, EmailCrawlr)
+  - Promote EmailFormat, Gravatar, Skymem, EmailCrawlr to registry
+  - schemas.py + mapper.py for each
 
-### Stage 10 — Identity Provider Layer
+  10c — IntelX client + schema/mapper
+  - Full client implementation (has official Python SDK)
+  - Add to registry
 
-**10a — Breach provider clients: schema + mapper**
-- HIBP, DeHashed, LeakCheck, HudsonRock, BreachDirectory
-- Introduce `ProviderFinding` typed dataclass in `base/models.py`
-- `schemas.py` + `mapper.py` for each
+  10d — New subprocess tools (Mailcat, WhatsmyName, SocidExtractor)
+  - Full client implementations
+  - schemas.py + mapper.py
+  - Add to registry
 
-**10b — Social and reputation provider clients: schema + mapper**
-- EmailRep, EmailFormat, Gravatar, EmailCrawlr
-- Promote all four to registry
-- `schemas.py` + `mapper.py` for each
+  ---
+  Stage 11 — Identity Module Signal Rules
 
-**10c — IntelX client + schema/mapper**
-- Full client implementation
-- Add to registry
+  11a — breach_monitor mapper/rules/schemas (empty stubs — implement now)
+  11b — credential_exposure rules/mapper
+  11c — stealer_log_exposure rules/mapper (HudsonRock)
+  11d — account_enumeration_risk rules/mapper (EmailRep + Holehe)
+  11e — account_inventory rules/mapper (Holehe + Mailcat + WhatsmyName)
+  11f — username_exposure rules/mapper (Maigret + SocidExtractor + Skymem)
+  11g — alias_correlation rules/mapper (EmailFormat + WhatsmyName)
+  11h — phone_exposure rules/mapper (Numverify + Truecaller + CallerName)
+  11i — darkweb_identity_monitor module (new — IntelX)
+  11j — public_profile_scan module (new — Gravatar + EmailCrawlr)
 
-**10d — Subprocess tool clients: Mailcat, WhatsmyName**
-- Full client implementations (subprocess pattern — same as holehe/maigret)
-- `schemas.py` + `mapper.py`
-- Add to registry
+  ---
+  Stage 12 — Device Pillar
 
----
+  12a — Device provider clients: osquery, posture, macos_native, windows_native, linux_native
+  12b — Device provider clients: lynis, trivy, grype, syft, oui_master_database
+  12c — Device modules: os_security, patch_status, software_vulnerability, firewall_status
+  12d — Device module: device_inventory (offline, uses OUI master DB)
 
-### Stage 11 — Identity Module Signal Rules
+  ---
+  Stage 13 — Browser Pillar
 
-**11a — breach_monitor mapper/rules/schemas**
-- `constants.py`, `config.py`, `schemas.py`, `rules.py`, `mapper.py`
+  13a — Browser provider clients: browser_extension_detector, get_browser_extension_info,
+  malicious_extension_sentry
+  13b — Browser provider clients: chromium_enterprise_policies, firefox_enterprise_policies, crxcavator,
+  chrome_web_store_api, firefox_addons_site_api
+  13c — Browser modules: extension_risk, browser_configuration
 
-**11b — credential_exposure rules/mapper**
+  ---
+  Stage 14 — File Upload Parsers
 
-**11c — stealer_log_exposure rules/mapper** (HudsonRock)
+  14a — mbox parser improvements (richer metadata, dedup)
+  14b — Password manager parsers: 1Password, Bitwarden, LastPass, Dashlane, Keeper, NordPass, generic CSV
+  14c — Upload API endpoint (POST /api/v1/assets/import)
 
-**11d — account_enumeration_risk rules/mapper** (EmailRep + Holehe account footprint)
+  ---
+  Stage 15 — Infrastructure (Wave 2, selective)
 
-**11e — account_inventory rules/mapper** (Holehe + Mailcat + WhatsmyName)
+  15a — LeakIX client + schema/mapper + infrastructure_exposure module
+  15b — Frankenstein client + schema/mapper
 
-**11f — username_exposure rules/mapper** (Maigret)
+  ---
+  Stage 16 — Integration & Wiring
 
-**11g — alias_correlation rules/mapper** (EmailFormat + WhatsmyName)
+  - Remove epieos from registry (deferred)
+  - Clarify/remove twilio scope
+  - Orchestrator updated to use ProviderFinding types throughout
+  - Policy evaluate_provider_policy() enforced at orchestrator level for all providers
+  - End-to-end scan test for each pillar
 
-**11h — phone_exposure rules/mapper** (Numverify + CallerName)
+  ---
+  One question before I start Stage 10: Should twilio stay in the registry for phone enrichment (lookup
+  carrier/line type on phone assets), or was it only ever for OTP sending — in which case it belongs in auth/
+   not providers/?
 
-**11i — darkweb_identity_monitor module** (new — IntelX)
+  ---
+  Stage 17 — Zima Companion (Phase 1: Browser Visibility)
 
-**11j — public_profile_scan module** (new — Gravatar + EmailCrawlr)
+  Goal: Signed native Rust binary that collects browser/OS state and POSTs snapshots to the backend.
+  Phase 1 is visibility-only — no automated remediation.
 
----
-
-### Stage 12 — Device Pillar
-
-**12a — Device provider clients: osquery, posture, macos_native, windows_native, linux_native**
-
-**12b — Device provider clients: lynis, trivy, grype, syft, oui_master_database**
-
-**12c — Device modules: os_security, patch_status, software_vulnerability, firewall_status**
-
-**12d — Device module: device_inventory** (offline OUI enrichment)
-
-**12e — Device module: software_inventory** (syft)
-
----
-
-### Stage 13 — Browser Pillar
-
-**13a — Browser provider clients: browser_extension_detector, get_browser_extension_info, malicious_extension_sentry**
-
-**13b — Browser provider clients: chromium_enterprise_policies, firefox_enterprise_policies, crxcavator, chrome_web_store_api, firefox_addons_site_api**
-
-**13c — Browser modules: extension_risk, browser_configuration**
-
----
-
-### Stage 14 — Email Account Identifier Pipeline
-
-**14a — mbox parser improvements**
-- Richer metadata extraction, deduplication, performance pass
-
-**14b — Password manager exporters (Wave 1)**
-- Bitwarden JSON export package
-- Proton Pass JSON export package
-- Fields at launch: service name, login URL, username/alias, generated password placeholder, notes (source: email account identifier), tags
-
-**14c — Upload API endpoint**
-- `POST /api/v1/assets/import`
-
-**14d — Newsletter and subscription detection pipeline**
-- Pre-pass stage before account classification — strips inbox noise before the account inventory is built
-- Signals used: `List-Unsubscribe`, `List-ID`, bulk-mail header patterns, known ESP domains, sender frequency, absence of account/security semantics
-- Output: review queue with sender/service name, message volume, last seen date, unsubscribe availability, confidence level, recommended action
-- Design rule: review workflow only — no silent automated unsubscribes; user approves every action
-- Sequencing constraint: build after 14a (mbox parser) is stable
-
-**14e — Email alias management integration (SimpleLogin + Addy.io)**
-- Action providers that create per-service email aliases after account discovery
-- Sit in the remediation layer — Zima proposes, user approves, provider creates
-- Alias flow: account_inventory confirms service → Zima proposes alias → user approves → provider creates alias → alias inserted into PM export
-- Requires: per-user provider API key storage, alias naming pattern config
-- Sequencing constraint: depends on 14d (newsletter detection) reducing account discovery noise first
-
-**14f — Password manager exporters (Wave 3)**
-- 1Password `.1pux` export package
-- `.1pux` is a zip archive containing `export.data` JSON
-- Sequencing constraint: build after 14b exporters are stable
-
----
-
-### Stage 15 — Infrastructure
-
-**15a — LeakIX client + schema/mapper + infrastructure_exposure module**
-
-**15b — Frankenstein client + schema/mapper**
-
----
-
-### Stage 16 — Integration and Wiring
-
-- Remove epieos from registry (deferred — ToS violation)
-- Remove twilio from provider layer; keep in auth only for OTP
-- Orchestrator updated to use `ProviderFinding` types throughout
-- `evaluate_provider_policy()` enforced at orchestrator level for all providers
-- End-to-end scan test for each pillar (identity, device, browser)
-- Final wave 3 extension store providers wired: chrome_web_store_api, firefox_addons_site_api
+  17a — DB models: CompanionSession + BrowserSnapshot in backend/app/db/models/companion.py
+        Registered in backend/app/db/migrations/env.py
+  17b — Alembic migration: e5f6a7b8c9d0_add_companion_tables.py
+        Creates companion_sessions (unique on user_id) + browser_snapshots (JSONB raw_snapshot)
+  17c — CompanionRepository: upsert_session, get_session_by_user, update_last_seen,
+        insert_snapshot, get_latest_snapshot — in backend/app/db/repositories/companion.py
+  17d — Auth utils: create_companion_token / decode_companion_token in backend/app/auth/utils.py
+        get_companion_user() dependency in backend/app/api/dependencies.py (Bearer-only, no cookie)
+  17e — API router: 4 endpoints in backend/app/api/v1/companion.py
+        POST /companion/setup-token, POST /companion/register, POST /companion/snapshot, GET /companion/status
+        Wired into backend/app/api/router.py
+  17f — Config additions: companion_setup_token_expire_minutes, companion_token_expire_days
+  17g — Rust companion scaffold: companion/ directory with Cargo.toml, rust-toolchain.toml,
+        .cargo/config.toml, src/{main,config,auth,models,client,snapshot}.rs,
+        src/collectors/{mod,browser,os}.rs
+  17h — Browser baselines JSON: companion/baselines/{chrome,brave,firefox}-v1.json
+        5 rules each covering DNS-over-HTTPS, safe browsing, HTTPS-only, extension auto-update, and
+        browser-specific privacy controls
+  17i — Build infrastructure: companion/Makefile (build-mac-arm/x86/universal/linux/windows),
+        .github/workflows/companion-ci.yml, .github/workflows/companion-release.yml
+        Release workflow: matrix build all 4 targets, optional macOS codesign, GitHub Release
+  17j — Frontend: SetupTokenResponse + CompanionStatusResponse types added to frontend/src/types/api.ts
+        Companion status card added to frontend/src/app/(dashboard)/browser/page.tsx
+        — polls GET /companion/status every 30s
+        — "Generate setup token" button → POST /companion/setup-token → shows install command
+  17k — Documentation: Brain/Zima/Companion/{architecture,building,baselines}.md created
+        Rule 11 (Companion Architecture Boundary) appended to .claude/CLAUDE.md

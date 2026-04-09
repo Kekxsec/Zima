@@ -28,21 +28,25 @@ const FEATURES = [
 export default function LandingPage() {
   const router = useRouter()
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  const hasHydrated = useAuthStore((s) => s._hasHydrated)
   const completed = useOnboardingStore((s) => s.completed)
+  const scanId = useOnboardingStore((s) => s.scanId)
+  const canAccessDashboard = completed || Boolean(scanId)
 
   useEffect(() => {
-    if (isAuthenticated && completed) {
+    if (!hasHydrated) return
+    if (isAuthenticated && canAccessDashboard) {
       router.replace("/dashboard")
     } else if (isAuthenticated && !completed) {
       router.replace("/onboarding")
     }
-  }, [isAuthenticated, completed, router])
+  }, [hasHydrated, isAuthenticated, completed, canAccessDashboard, router])
 
-  // Don't flash the landing page while redirecting authenticated users
-  if (isAuthenticated) return null
+  // Don't render landing page until we know auth state (prevents flash on redirect)
+  if (!hasHydrated || isAuthenticated) return null
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex flex-col items-center justify-center px-4 py-16">
+    <div className="zima-stage-shell min-h-screen flex flex-col items-center justify-center px-4 py-16">
       {/* Background glow */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-primary/5 blur-3xl" />

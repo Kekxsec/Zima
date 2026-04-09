@@ -22,6 +22,37 @@ router = APIRouter(prefix="/account", tags=["account"])
 logger = get_logger(__name__)
 
 
+@router.get("")
+async def get_account(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict[str, object]:
+    """Return the authenticated user's basic profile and declared assets."""
+    asset_repo = AssetRepository(db)
+    assets = await asset_repo.get_all_for_user(current_user.id)
+
+    return {
+        "user": {
+            "user_id": str(current_user.id),
+            "created_at": current_user.created_at,
+            "updated_at": current_user.updated_at,
+        },
+        "assets": [
+            {
+                "asset_id": str(asset.id),
+                "user_id": str(asset.user_id),
+                "entity_type": asset.entity_type,
+                "value": asset.value,
+                "is_primary": asset.is_primary,
+                "is_verified": asset.is_verified,
+                "created_at": asset.created_at,
+                "updated_at": asset.updated_at,
+            }
+            for asset in assets
+        ],
+    }
+
+
 @router.get("/audit-log")
 async def get_audit_log(
     limit: int = 50,

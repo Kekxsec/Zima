@@ -44,3 +44,8 @@ postgres_data/
 
 # Alembic
 *.pyc
+
+# Sherlock/provider tool output files that land in cwd before the temp-dir fix
+# (belt-and-suspenders — the provider now uses TemporaryDirectory)
+*.sherlock.txt
+zima_sherlock_*/

@@ -32,11 +32,6 @@ EPIEOS_NON_GOOGLE = {
     "raw": {"some": "data"},
 }
 
-EMAILFORMAT_RESULTS = [
-    {"email": "first.last@example.com", "domain": "example.com"},
-    {"email": "f.last@example.com", "domain": "example.com"},
-]
-
 
 @pytest.mark.asyncio
 async def test_run_returns_empty_when_no_epieos_key() -> None:
@@ -66,10 +61,6 @@ async def test_run_emits_alias_signal_when_google_name_found() -> None:
             patch(
                 "backend.app.modules.identity.alias_correlation.service.EpieosProvider.validate_email",
                 return_value=[EPIEOS_GOOGLE_WITH_NAME],
-            ),
-            patch(
-                "backend.app.modules.identity.alias_correlation.service.EmailformatProvider.get_formats",
-                return_value=[],
             ),
         ):
             signals = await service.run(
@@ -101,10 +92,6 @@ async def test_run_skips_google_finding_without_name() -> None:
                 "backend.app.modules.identity.alias_correlation.service.EpieosProvider.validate_email",
                 return_value=[EPIEOS_GOOGLE_NO_NAME],
             ),
-            patch(
-                "backend.app.modules.identity.alias_correlation.service.EmailformatProvider.get_formats",
-                return_value=[],
-            ),
         ):
             signals = await service.run(
                 user_id=USER_ID,
@@ -127,10 +114,6 @@ async def test_run_skips_non_google_findings() -> None:
                 "backend.app.modules.identity.alias_correlation.service.EpieosProvider.validate_email",
                 return_value=[EPIEOS_NON_GOOGLE],
             ),
-            patch(
-                "backend.app.modules.identity.alias_correlation.service.EmailformatProvider.get_formats",
-                return_value=[],
-            ),
         ):
             signals = await service.run(
                 user_id=USER_ID,
@@ -142,21 +125,15 @@ async def test_run_skips_non_google_findings() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_attaches_emailformat_patterns_to_evidence() -> None:
+async def test_run_does_not_attach_emailformat_patterns_to_evidence() -> None:
     service = AliasCorrelationService()
     with patch(
         "backend.app.modules.identity.alias_correlation.service.settings"
     ) as mock_settings:
         mock_settings.epieos_api_key = SecretStr("test-key")
-        with (
-            patch(
-                "backend.app.modules.identity.alias_correlation.service.EpieosProvider.validate_email",
-                return_value=[EPIEOS_GOOGLE_WITH_NAME],
-            ),
-            patch(
-                "backend.app.modules.identity.alias_correlation.service.EmailformatProvider.get_formats",
-                return_value=EMAILFORMAT_RESULTS,
-            ),
+        with patch(
+            "backend.app.modules.identity.alias_correlation.service.EpieosProvider.validate_email",
+            return_value=[EPIEOS_GOOGLE_WITH_NAME],
         ):
             signals = await service.run(
                 user_id=USER_ID,
@@ -165,38 +142,6 @@ async def test_run_attaches_emailformat_patterns_to_evidence() -> None:
             )
 
     assert len(signals) == 1
-    assert "emailformat_patterns" in signals[0].evidence
-    assert len(signals[0].evidence["emailformat_patterns"]) == 2
-    assert (
-        signals[0].evidence["emailformat_patterns"][0]["email"]
-        == "first.last@example.com"
-    )
-
-
-@pytest.mark.asyncio
-async def test_run_evidence_has_no_emailformat_key_when_no_patterns() -> None:
-    """emailformat_patterns key must be absent (not empty list) when nothing found."""
-    service = AliasCorrelationService()
-    with patch(
-        "backend.app.modules.identity.alias_correlation.service.settings"
-    ) as mock_settings:
-        mock_settings.epieos_api_key = SecretStr("test-key")
-        with (
-            patch(
-                "backend.app.modules.identity.alias_correlation.service.EpieosProvider.validate_email",
-                return_value=[EPIEOS_GOOGLE_WITH_NAME],
-            ),
-            patch(
-                "backend.app.modules.identity.alias_correlation.service.EmailformatProvider.get_formats",
-                return_value=[],
-            ),
-        ):
-            signals = await service.run(
-                user_id=USER_ID,
-                asset_id=ASSET_ID,
-                asset_value="alice@example.com",
-            )
-
     assert "emailformat_patterns" not in signals[0].evidence
 
 
@@ -220,32 +165,3 @@ async def test_run_graceful_on_epieos_failure() -> None:
             )
 
     assert signals == []
-
-
-@pytest.mark.asyncio
-async def test_run_graceful_on_emailformat_failure() -> None:
-    """Emailformat failure must not block alias signals from being emitted."""
-    service = AliasCorrelationService()
-    with patch(
-        "backend.app.modules.identity.alias_correlation.service.settings"
-    ) as mock_settings:
-        mock_settings.epieos_api_key = SecretStr("test-key")
-        with (
-            patch(
-                "backend.app.modules.identity.alias_correlation.service.EpieosProvider.validate_email",
-                return_value=[EPIEOS_GOOGLE_WITH_NAME],
-            ),
-            patch(
-                "backend.app.modules.identity.alias_correlation.service.EmailformatProvider.get_formats",
-                side_effect=ProviderError("emailformat.com unreachable"),
-            ),
-        ):
-            signals = await service.run(
-                user_id=USER_ID,
-                asset_id=ASSET_ID,
-                asset_value="alice@example.com",
-            )
-
-    # Signal emitted; emailformat enrichment absent but no crash
-    assert len(signals) == 1
-    assert "emailformat_patterns" not in signals[0].evidence

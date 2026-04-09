@@ -1,0 +1,46 @@
+name: Companion CI
+
+on:
+  push:
+    paths:
+      - "companion/**"
+  pull_request:
+    paths:
+      - "companion/**"
+
+defaults:
+  run:
+    working-directory: companion
+
+jobs:
+  lint-and-test:
+    name: Lint and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            companion/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('companion/Cargo.lock') }}
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy -- -D warnings
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Build (debug)
+        run: cargo build

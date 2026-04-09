@@ -1,15 +1,15 @@
 "use client"
 
-import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useQuery } from "@tanstack/react-query"
 import {
   ShieldCheck,
   ShieldAlert,
   AlertTriangle,
-  CheckCircle2,
   ArrowRight,
   Activity,
+  Mailbox,
+  Search,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { SeverityBadge } from "@/components/ui/SeverityBadge"
@@ -57,6 +57,18 @@ function ScoreRing({ score }: { score: number }) {
   )
 }
 
+function dedupeBreaches(findings: FindingListResponse["findings"]) {
+  const seen = new Set<string>()
+  return findings
+    .flatMap((finding) => finding.impacted_breaches)
+    .filter((breach) => {
+      const key = `${breach.email}:${breach.breach_name}:${breach.provider}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+}
+
 export default function ResultsPage() {
   const router = useRouter()
   const setCompleted = useOnboardingStore((s) => s.setCompleted)
@@ -86,11 +98,12 @@ export default function ResultsPage() {
   const { label: gradeLabel, color: gradeColor } = scoreGrade(score)
   const latestScan = scanData?.scans[0]
   const findings = findingData?.findings ?? []
+  const surfacedBreaches = dedupeBreaches(findings).slice(0, 5)
   const openSignals = findingData?.signals_open ?? 0
 
   function handleDone() {
     setCompleted(true)
-    router.push("/dashboard")
+    router.push("/accounts?from=onboarding")
   }
 
   return (
@@ -102,9 +115,10 @@ export default function ResultsPage() {
       <div className="w-full max-w-2xl">
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-white mb-2">Your identity scan results</h1>
+          <h1 className="text-2xl font-bold text-white mb-2">Your advisor has your first results</h1>
           <p className="text-slate-400 text-sm">
-            Here&apos;s a summary of what we found. You can explore the full details on your dashboard.
+            Your first scan is finished. Start with the issues already tied to exposed services,
+            then bring in your inbox export so Zima can uncover more of your real account footprint.
           </p>
         </div>
 
@@ -161,44 +175,68 @@ export default function ResultsPage() {
           </div>
         </div>
 
-        {/* ── Top findings ── */}
-        {findings.length > 0 && (
+        {surfacedBreaches.length > 0 && (
           <div className="bg-slate-800/40 border border-slate-700/50 rounded-xl p-4 mb-6">
             <h2 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-amber-400" />
-              Top findings
+              <ShieldAlert className="w-4 h-4 text-red-400" />
+              Services already tied to exposed credentials
             </h2>
             <div className="space-y-2">
-              {findings.map((f) => (
+              {surfacedBreaches.map((breach) => (
                 <div
-                  key={f.finding_id}
+                  key={`${breach.email}-${breach.breach_name}-${breach.provider}`}
                   className="flex items-start justify-between gap-3 py-2 border-t border-slate-700/40 first:border-0"
                 >
                   <div className="min-w-0">
-                    <p className="text-sm text-slate-200 truncate">{f.title}</p>
-                    <p className="text-xs text-slate-500 mt-0.5 line-clamp-1">{f.explanation}</p>
+                    <p className="text-sm text-slate-200 truncate">{breach.breach_name}</p>
+                    <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">
+                      {breach.email} · {breach.provider}
+                      {breach.breach_date ? ` · ${breach.breach_date}` : ""}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-1 line-clamp-1">{breach.summary}</p>
                   </div>
-                  <SeverityBadge severity={f.severity} />
+                  <SeverityBadge severity="high" />
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        {/* ── Password manager prompt (generic) ── */}
+        <div className="bg-slate-800/40 border border-slate-700/50 rounded-xl p-4 mb-6">
+          <h2 className="text-sm font-semibold text-white mb-3">Your guided plan</h2>
+          <div className="space-y-3">
+            <JourneyStep
+              icon={<Mailbox className="w-4 h-4 text-violet-400" />}
+              title="1. Upload your inbox export"
+              description="Bring in an .mbox export from Gmail, Outlook, or Apple Mail so Zima can identify registrations, password resets, and confirmation emails tied to your identity."
+            />
+            <JourneyStep
+              icon={<Search className="w-4 h-4 text-sky-400" />}
+              title="2. Review discovered accounts"
+              description="We’ll turn those inbox clues into a cleaner account inventory so you can spot forgotten services and old login surfaces."
+            />
+            <JourneyStep
+              icon={<ShieldAlert className="w-4 h-4 text-amber-400" />}
+              title="3. Triage findings with context"
+              description="Once your accounts are mapped, Zima can connect the breach evidence to the services you actually use and help you prioritise rotation and MFA."
+            />
+          </div>
+        </div>
+
         <div className="bg-slate-800/40 border border-slate-700/50 rounded-xl p-4 mb-8">
           <div className="flex items-start gap-3">
             <div className="shrink-0 flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 mt-0.5">
-              <CheckCircle2 className="w-4 h-4 text-primary" />
+              <Mailbox className="w-4 h-4 text-primary" />
             </div>
             <div>
               <h3 className="text-sm font-semibold text-white mb-1">
-                Recommended: use a password manager
+                What an mbox file actually is
               </h3>
               <p className="text-xs text-slate-400 leading-relaxed">
-                A password manager generates and stores unique, strong passwords for every site — the single most
-                effective step you can take to limit breach impact. Popular options include Bitwarden (free &amp; open
-                source), 1Password, and Dashlane. Enable two-factor authentication on all critical accounts.
+                An mbox file is a mailbox export. It contains the email messages that reveal where you signed up,
+                which services sent password resets, and which accounts are still active. Zima uses it to find more
+                accounts than breach data alone can show, so the rest of the security plan is based on your real
+                footprint rather than guesswork.
               </p>
             </div>
           </div>
@@ -207,9 +245,31 @@ export default function ResultsPage() {
         {/* CTA */}
         <div className="flex justify-center">
           <Button size="lg" className="gap-2 px-10" onClick={handleDone}>
-            Go to dashboard <ArrowRight className="w-4 h-4" />
+            Continue with inbox upload <ArrowRight className="w-4 h-4" />
           </Button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function JourneyStep({
+  icon,
+  title,
+  description,
+}: {
+  icon: React.ReactNode
+  title: string
+  description: string
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <div className="shrink-0 flex h-8 w-8 items-center justify-center rounded-lg bg-slate-900/60 border border-slate-700/60">
+        {icon}
+      </div>
+      <div>
+        <p className="text-sm font-medium text-slate-200">{title}</p>
+        <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">{description}</p>
       </div>
     </div>
   )

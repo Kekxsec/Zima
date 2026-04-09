@@ -46,6 +46,21 @@ class AssetRepository:
         )
         return list(result.scalars().all())
 
+    async def get_by_ids_for_user(
+        self,
+        user_id: uuid.UUID,
+        asset_ids: list[uuid.UUID],
+    ) -> list[Asset]:
+        if not asset_ids:
+            return []
+        result = await self.session.execute(
+            select(Asset).where(
+                Asset.user_id == user_id,
+                Asset.id.in_(asset_ids),
+            )
+        )
+        return list(result.scalars().all())
+
     async def delete_all_for_user(self, user_id: uuid.UUID) -> None:
         """Hard-deletes all assets for a user. Used by GDPR erasure."""
         await self.session.execute(delete(Asset).where(Asset.user_id == user_id))

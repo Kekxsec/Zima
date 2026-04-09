@@ -1,11 +1,13 @@
 # backend/app/api/v1/scans.py
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.dependencies import get_current_user, get_db_session
 from backend.app.auth.models import User
+from backend.app.core.config import settings
 from backend.app.core.enums import EntityType, ScanStatus, parse_tier
 from backend.app.core.rate_limit import limiter
 from backend.app.db.repositories.assets import AssetRepository
@@ -105,7 +107,15 @@ async def get_scan_status(
     # so it is race-free: if the background task finishes concurrently, its
     # COMPLETED update wins and this matches zero rows.
     if scan.status == ScanStatus.RUNNING.value and scan.started_at:
-        marked = await scan_repo.mark_stale_if_running(scan_uuid)
+        stale_threshold = datetime.now(UTC) - timedelta(
+            minutes=settings.stale_scan_after_minutes
+        )
+        marked = False
+        if scan.started_at < stale_threshold:
+            marked = await scan_repo.mark_stale_if_running(
+                scan_uuid,
+                stale_after_minutes=settings.stale_scan_after_minutes,
+            )
         if marked:
             await db.commit()
             refreshed = await scan_repo.get_by_id_for_user(

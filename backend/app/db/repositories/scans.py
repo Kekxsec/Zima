@@ -71,7 +71,7 @@ class ScanRepository:
     async def mark_stale_if_running(
         self,
         scan_id: uuid.UUID,
-        stale_after_minutes: int = 10,
+        stale_after_minutes: int = 30,
     ) -> bool:
         """
         Conditionally marks a single scan FAILED only if it is still RUNNING
@@ -99,7 +99,7 @@ class ScanRepository:
         )
         return result.rowcount > 0
 
-    async def mark_stale_scans_failed(self, stale_after_minutes: int = 10) -> int:
+    async def mark_stale_scans_failed(self, stale_after_minutes: int = 30) -> int:
         """
         Marks any scan in RUNNING status for longer than stale_after_minutes as FAILED.
         Called at startup and when the scan status endpoint detects a stale scan.

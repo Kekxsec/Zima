@@ -15,6 +15,7 @@ interface OnboardingState {
   /** Persisted: marks the user has completed onboarding at least once */
   completed: boolean
   identity: OnboardingIdentity | null
+  /** Persisted while onboarding is in flight so dashboard access survives route changes */
   scanId: string | null
   /** Additional emails entered during identity step that need OTP verification */
   pendingEmailVerifications: string[]
@@ -23,7 +24,7 @@ interface OnboardingState {
 
   setCompleted: (value: boolean) => void
   setIdentity: (identity: OnboardingIdentity) => void
-  setScanId: (id: string) => void
+  setScanId: (id: string | null) => void
   setPendingEmailVerifications: (emails: string[]) => void
   setPendingPhoneVerifications: (phones: string[]) => void
   reset: () => void
@@ -47,8 +48,11 @@ export const useOnboardingStore = create<OnboardingState>()(
     }),
     {
       name: "zima-onboarding",
-      // Only persist the `completed` flag — identity is session-only for privacy
-      partialize: (state) => ({ completed: state.completed }),
+      // Persist only minimal routing state; keep identity/session details ephemeral.
+      partialize: (state) => ({
+        completed: state.completed,
+        scanId: state.scanId,
+      }),
     },
   ),
 )

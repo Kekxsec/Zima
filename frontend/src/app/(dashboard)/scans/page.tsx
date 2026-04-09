@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { ScanLine, Play, Clock, CheckCircle2, XCircle, Loader2, ChevronRight } from "lucide-react"
+import { ScanLine, Play, Clock, CheckCircle2, XCircle, Loader2 } from "lucide-react"
 import { format, parseISO } from "date-fns"
 import { api, ApiRequestError } from "@/lib/api/client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -111,11 +111,11 @@ export default function ScansPage() {
   const hasActive = scans.some((s) => s.status === "pending" || s.status === "running")
 
   return (
-    <div className="space-y-5 max-w-3xl">
-      <div>
-        <h1 className="text-xl font-bold tracking-tight">Scans</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Trigger a scan to refresh your identity threat data
+    <div className="space-y-5">
+      <div className="space-y-2">
+        <h1 className="text-2xl font-bold tracking-tight">Scans</h1>
+        <p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">
+          Re-run a scan after you change passwords, upload your inbox, or clean up accounts so Zima can reassess your exposure.
         </p>
       </div>
 

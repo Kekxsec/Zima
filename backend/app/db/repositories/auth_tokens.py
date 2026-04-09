@@ -11,6 +11,10 @@ class AuthTokenRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
+    async def create(self, token: AuthToken) -> None:
+        """Persist a new AuthToken. Caller must commit after this returns."""
+        self.session.add(token)
+
     async def get_valid_token(self, email: str, code_hash: str) -> AuthToken | None:
         """
         Returns a matching token only if it is:

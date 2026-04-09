@@ -6,6 +6,47 @@ from backend.app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+_MAX_SEND_ATTEMPTS: int = 3
+
+
+async def _send_with_retry(
+    send_fn: object,
+    params: dict,
+    log_tag: str,
+    *,
+    max_attempts: int = _MAX_SEND_ATTEMPTS,
+) -> None:
+    """
+    Calls ``resend.Emails.send(params)`` in a thread pool, retrying up to
+    ``max_attempts`` times with exponential back-off (1s, 2s, 4s…).
+    Logs WARN on each transient failure and ERROR only when all retries are
+    exhausted — then swallows the exception so callers never raise.
+    """
+    import resend  # noqa: PLC0415 — import only when configured
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            await asyncio.to_thread(resend.Emails.send, params)  # type: ignore[arg-type]
+            return
+        except Exception as exc:
+            if attempt < max_attempts:
+                wait = 2 ** (attempt - 1)
+                logger.warning(
+                    "email.send_retry",
+                    tag=log_tag,
+                    attempt=attempt,
+                    wait_seconds=wait,
+                    error=str(exc),
+                )
+                await asyncio.sleep(wait)
+            else:
+                logger.error(
+                    "email.send_failed_permanently",
+                    tag=log_tag,
+                    attempts=max_attempts,
+                    error=str(exc),
+                )
+
 
 class EmailService:
     """
@@ -52,14 +93,38 @@ class EmailService:
             "text": otp_text(code),
         }
 
-        try:
-            # resend.Emails.send() is synchronous — run in a thread to avoid
-            # blocking the event loop during the outbound HTTP request.
-            await asyncio.to_thread(resend.Emails.send, params)  # type: ignore[arg-type]
-            logger.info("email.otp_sent")
-        except Exception as exc:
-            # Log but do not raise — token is already stored, user can request another
-            logger.error("email.send_failed", error=str(exc))
+        await _send_with_retry(resend.Emails.send, params, "otp_send")
+        logger.info("email.otp_sent")
+
+    async def send_domain_otp(self, domain: str, code: str) -> None:
+        """Sends a domain verification OTP to admin@<domain>. Never raises."""
+        to_email = f"admin@{domain}"
+        if not self._configured:
+            logger.info("email.domain_otp_dev_console", to_email=to_email)
+            return
+
+        import resend
+
+        params = {
+            "from": f"{settings.email_from_name} <{settings.email_from_address}>",
+            "to": [to_email],
+            "subject": f"Verify your domain on Zima: {domain}",
+            "text": (
+                f"Your Zima domain verification code for {domain} is: {code}\n\n"
+                "This code expires in 15 minutes. "
+                "If you did not request this, please ignore this email."
+            ),
+            "html": (
+                f"<p>Your Zima domain verification code for"
+                f" <strong>{domain}</strong> is:</p>"
+                f"<p style='font-size:24px;font-weight:bold;letter-spacing:4px'>"
+                f"{code}</p>"
+                "<p>This code expires in 15 minutes. "
+                "If you did not request this, please ignore this email.</p>"
+            ),
+        }
+        await _send_with_retry(resend.Emails.send, params, "domain_otp_send")
+        logger.info("email.domain_otp_sent", domain=domain)
 
     async def send_breach_alert(
         self,
@@ -96,8 +161,5 @@ class EmailService:
                 monitored_email, breach_title, breach_date, data_classes
             ),
         }
-        try:
-            await asyncio.to_thread(resend.Emails.send, params)  # type: ignore[arg-type]
-            logger.info("email.breach_alert_sent", breach=breach_title)
-        except Exception as exc:
-            logger.error("email.breach_alert_failed", error=str(exc))
+        await _send_with_retry(resend.Emails.send, params, "breach_alert_send")
+        logger.info("email.breach_alert_sent", breach=breach_title)

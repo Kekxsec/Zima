@@ -13,6 +13,11 @@ from backend.app.providers.base.exceptions import (
     ProviderError,
 )
 
+# WHOIS confidence: 0.85 reflects that WHOIS data is authoritative (public registry)
+# but may be privacy-redacted. Constant is intentional — we don't vary it by field
+# completeness because partial records are still high-quality passive evidence.
+_WHOIS_CONFIDENCE = 0.85
+
 
 class WhoisProvider(BaseProviderClient):
     name = "whois"
@@ -42,7 +47,7 @@ class WhoisProvider(BaseProviderClient):
                 {"apiKey": api_key, "domainName": val, "outputFormat": "JSON"}
             )
             url = f"{self.base_url}?{params}"
-            data = self._fetch(url)
+            data = await self._fetch(url)
             record = data.get("WhoisRecord", {})
             if not isinstance(record, dict):
                 continue
@@ -62,7 +67,7 @@ class WhoisProvider(BaseProviderClient):
                         description=f"Registrar: {registrar}, Registrant: {org}, Created: {created}, Expires: {expires}",
                         entity_type=_entity_type,
                         entity_value=val,
-                        confidence=0.85,
+                        confidence=_WHOIS_CONFIDENCE,
                         tags=["whois", "passive"],
                     )
                 )
@@ -76,7 +81,7 @@ class WhoisProvider(BaseProviderClient):
                             "created": created,
                             "expires": expires,
                         },
-                        confidence=0.85,
+                        confidence=_WHOIS_CONFIDENCE,
                     )
                 )
         return findings

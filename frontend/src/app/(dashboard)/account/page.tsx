@@ -32,6 +32,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { useAuthStore } from "@/lib/store/auth"
+import { useOnboardingStore } from "@/lib/store/onboarding"
 import type {
   AccountResponse,
   AuditLogResponse,
@@ -287,17 +288,19 @@ function DataSection({ onDeleteAccount }: { onDeleteAccount: () => void }) {
 export default function AccountPage() {
   const router = useRouter()
   const setAuthenticated = useAuthStore((s) => s.setAuthenticated)
+  const resetOnboarding = useOnboardingStore((s) => s.reset)
 
   const { data: account, isLoading } = useQuery({
     queryKey: ["account"],
     queryFn: () => api.get<AccountResponse>("/account"),
   })
 
-  const { mutate: deleteAccount, isPending: deleting } = useMutation({
+  const { mutate: deleteAccount } = useMutation({
     mutationFn: () => api.delete<MessageResponse>("/account"),
     onSuccess: () => {
       toast.success("Account deleted.")
       setAuthenticated(false)
+      resetOnboarding()
       router.push("/sign-in")
     },
     onError: (err) => {
@@ -310,7 +313,7 @@ export default function AccountPage() {
   )?.value
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Account</h1>
         <p className="text-sm text-muted-foreground mt-0.5">

@@ -1,9 +1,10 @@
 # backend/app/providers/tools/mailcat/client.py
-"""Mailcat — Go binary CLI wrapper for discovering email addresses from a username."""
+"""Mailcat — Python CLI wrapper for discovering email addresses from a username."""
 
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import re
 import shutil
@@ -21,18 +22,20 @@ _TIMEOUT_SECONDS = 45
 # Must start with alphanumeric to prevent flag injection.
 _USERNAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._\-]{0,63}$")
 
-# Match lines like: [+] username@domain.tld  (possible spacing variations)
-_FOUND_PATTERN = re.compile(r"^\[\+\]\s+(\S+@\S+\.\S+)")
+# Match lines like: *  username@domain.tld  (sharsil/mailcat output format)
+_FOUND_PATTERN = re.compile(r"^\*\s+(\S+@\S+\.\S+)")
+
+_log = logging.getLogger(__name__)
 
 
 class MailcatProvider(BaseProviderClient):
     """Mailcat - username-to-email discovery tool.
 
-    Runs ``mailcat {username}`` and parses ``[+]`` lines to collect email
+    Runs ``mailcat {username}`` and parses ``*`` lines to collect email
     addresses associated with the given username across known services.
 
-    Requires the mailcat Go binary to be installed and in PATH:
-        go install github.com/s0md3v/mailcat@latest
+    Requires mailcat (sharsil/mailcat) to be installed and in PATH.
+    Output format: ``*  email@domain.com``
     """
 
     name = "tool_mailcat"
@@ -88,14 +91,18 @@ def _resolve_binary() -> str:
     raise ProviderError(
         message=(
             "mailcat is not installed. "
-            "Install: go install github.com/s0md3v/mailcat@latest"
+            "Install: pip install mailcat  (sharsil/mailcat)"
         ),
         retryable=False,
     )
 
 
 async def _run_mailcat_async(username: str, binary: str) -> list[str]:
-    """Run mailcat in a thread pool with a hard blocking timeout."""
+    """Run mailcat in a thread pool with a hard blocking timeout.
+
+    stdout is parsed for results; stderr is logged at DEBUG and not mixed
+    into the parsed output to avoid false-positive pattern matches.
+    """
     cmd = [binary, "--", username]
 
     def _run() -> subprocess.CompletedProcess[bytes]:
@@ -108,20 +115,29 @@ async def _run_mailcat_async(username: str, binary: str) -> list[str]:
             try:
                 stdout, stderr = proc.communicate(timeout=_TIMEOUT_SECONDS)
             except subprocess.TimeoutExpired:
+                # SIGTERM first, then SIGKILL after a short grace period.
                 try:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
                 except ProcessLookupError:
                     pass
                 try:
-                    proc.communicate(timeout=5)
+                    proc.communicate(timeout=2)
                 except subprocess.TimeoutExpired:
-                    pass
+                    try:
+                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    proc.communicate(timeout=5)
                 raise
+        if stderr:
+            _log.debug(
+                "mailcat stderr for %r: %s", username, stderr.decode(errors="replace")
+            )
         return subprocess.CompletedProcess(
             args=cmd,
             returncode=proc.returncode,
             stdout=stdout,
-            stderr=stderr,
+            stderr=b"",
         )
 
     try:
@@ -137,12 +153,9 @@ async def _run_mailcat_async(username: str, binary: str) -> list[str]:
             retryable=False,
         ) from exc
 
-    output = result.stdout.decode(errors="replace") + result.stderr.decode(
-        errors="replace"
-    )
-
+    # Parse stdout only.
     found: list[str] = []
-    for line in output.splitlines():
+    for line in result.stdout.decode(errors="replace").splitlines():
         line = line.strip()
         match = _FOUND_PATTERN.match(line)
         if match:

@@ -1,0 +1,71 @@
+{
+  "browser": "chrome",
+  "baseline_version": "1",
+  "rules": [
+    {
+      "id": "chrome-dns-over-https",
+      "title": "DNS-over-HTTPS enabled",
+      "setting_key": "dns_over_https_mode",
+      "desired_value": "secure",
+      "audit_method": "read_preference",
+      "apply_method": "write_preference",
+      "verify_method": "read_preference",
+      "requires_admin": false,
+      "risk_if_skipped": "DNS queries sent in plaintext, enabling ISP and network-level tracking",
+      "rollback_support": true,
+      "reference": "https://support.google.com/chrome/answer/9838987"
+    },
+    {
+      "id": "chrome-safe-browsing",
+      "title": "Safe Browsing enabled",
+      "setting_key": "safebrowsing.enabled",
+      "desired_value": true,
+      "audit_method": "read_preference",
+      "apply_method": "write_preference",
+      "verify_method": "read_preference",
+      "requires_admin": false,
+      "risk_if_skipped": "Phishing and malware sites not blocked",
+      "rollback_support": true,
+      "reference": "https://support.google.com/chrome/answer/9890866"
+    },
+    {
+      "id": "chrome-https-only",
+      "title": "HTTPS-only mode enabled",
+      "setting_key": "https_only_mode_enabled",
+      "desired_value": true,
+      "audit_method": "read_preference",
+      "apply_method": "write_preference",
+      "verify_method": "read_preference",
+      "requires_admin": false,
+      "risk_if_skipped": "Browser may load HTTP pages, exposing data to interception",
+      "rollback_support": true,
+      "reference": "https://blog.chromium.org/2021/07/increasing-https-adoption.html"
+    },
+    {
+      "id": "chrome-extension-auto-update",
+      "title": "Extension auto-update enabled",
+      "setting_key": "extensions.autoupdate",
+      "desired_value": true,
+      "audit_method": "read_preference",
+      "apply_method": "write_preference",
+      "verify_method": "read_preference",
+      "requires_admin": false,
+      "risk_if_skipped": "Extensions may have unpatched vulnerabilities",
+      "rollback_support": true,
+      "reference": "https://support.google.com/chrome/a/answer/9897177"
+    },
+    {
+      "id": "chrome-site-isolation",
+      "title": "Site isolation (Strict-Origin-When-Cross-Origin) enforced",
+      "setting_key": "site_isolation.enabled",
+      "desired_value": true,
+      "audit_method": "read_preference",
+      "apply_method": "not_applicable",
+      "verify_method": "read_preference",
+      "requires_admin": false,
+      "risk_if_skipped": "Cross-site data leakage via Spectre-class attacks",
+      "rollback_support": false,
+      "reference": "https://www.chromium.org/Home/chromium-security/site-isolation/"
+    }
+  ]
+}

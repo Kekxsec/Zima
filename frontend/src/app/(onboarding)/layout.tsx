@@ -9,17 +9,18 @@ import { useAuthStore } from "@/lib/store/auth"
 export default function OnboardingLayout({ children }: { children: ReactNode }) {
   const router = useRouter()
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  const hasHydrated = useAuthStore((s) => s._hasHydrated)
 
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (hasHydrated && !isAuthenticated) {
       router.replace("/sign-in")
     }
-  }, [isAuthenticated, router])
+  }, [hasHydrated, isAuthenticated, router])
 
-  if (!isAuthenticated) return null
+  if (!hasHydrated || !isAuthenticated) return null
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
+    <div className="zima-stage-shell min-h-screen">
       {children}
     </div>
   )

@@ -98,6 +98,65 @@ body {
   font-feature-settings: "rlig" 1, "calt" 1;
 }
 
+.zima-stage-shell {
+  background:
+    radial-gradient(circle at top, hsl(199 89% 48% / 0.12), transparent 28rem),
+    linear-gradient(135deg, #020617 0%, #0b1220 50%, #020617 100%);
+}
+
+.zima-deep-theme {
+  color-scheme: dark;
+  --background: 222 44% 8%;
+  --foreground: 210 40% 96%;
+  --card: 222 33% 13%;
+  --card-foreground: 210 40% 96%;
+  --popover: 222 33% 13%;
+  --popover-foreground: 210 40% 96%;
+  --secondary: 221 28% 18%;
+  --secondary-foreground: 210 40% 96%;
+  --muted: 221 24% 16%;
+  --muted-foreground: 215 20% 72%;
+  --accent: 199 68% 17%;
+  --accent-foreground: 199 80% 88%;
+  --border: 217 27% 24%;
+  --input: 217 27% 24%;
+  --ring: 199 89% 48%;
+}
+
+.zima-deep-theme .severity-badge {
+  border: 1px solid transparent;
+}
+
+.zima-deep-theme .severity-badge-critical {
+  background-color: hsl(0 72% 45% / 0.16);
+  border-color: hsl(0 72% 45% / 0.28);
+  color: hsl(0 100% 88%);
+}
+
+.zima-deep-theme .severity-badge-high {
+  background-color: hsl(24 90% 50% / 0.16);
+  border-color: hsl(24 90% 50% / 0.28);
+  color: hsl(24 100% 86%);
+}
+
+.zima-deep-theme .severity-badge-medium {
+  background-color: hsl(42 96% 52% / 0.16);
+  border-color: hsl(42 96% 52% / 0.28);
+  color: hsl(42 100% 84%);
+}
+
+.zima-deep-theme .severity-badge-low {
+  background-color: hsl(199 89% 48% / 0.16);
+  border-color: hsl(199 89% 48% / 0.28);
+  color: hsl(199 100% 86%);
+}
+
+.zima-deep-theme .severity-badge-info {
+  background-color: hsl(217 20% 55% / 0.16);
+  border-color: hsl(217 20% 55% / 0.28);
+  color: hsl(213 27% 84%);
+}
+
 /* ─── Scrollbar (light, subtle) ──────────────────────────────────────────── */
 ::-webkit-scrollbar {
   width: 6px;
@@ -111,16 +170,3 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.5);
 }
-
-/* ─── Severity colour helpers (used across findings/signals) ─────────────── */
-.severity-critical { color: hsl(0 84% 45%); }
-.severity-high     { color: hsl(20 90% 48%); }
-.severity-medium   { color: hsl(38 92% 45%); }
-.severity-low      { color: hsl(199 89% 40%); }
-.severity-info     { color: hsl(215 16% 47%); }
-
-.severity-bg-critical { background-color: hsl(0 84% 45% / 0.1); }
-.severity-bg-high     { background-color: hsl(20 90% 48% / 0.1); }
-.severity-bg-medium   { background-color: hsl(38 92% 45% / 0.1); }
-.severity-bg-low      { background-color: hsl(199 89% 40% / 0.1); }
-.severity-bg-info     { background-color: hsl(215 16% 47% / 0.1); }

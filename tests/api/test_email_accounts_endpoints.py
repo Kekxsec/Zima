@@ -1,8 +1,11 @@
 # tests/api/test_email_accounts_endpoints.py
 """API tests for the email account identifier endpoints."""
 
+import csv
 import io
+import uuid
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
@@ -10,9 +13,10 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.app.db.models.email_accounts import DiscoveredAccount, ServiceRegistry
 from backend.app.db.session import get_db_session
 from backend.app.main import app
-from tests.factories import AssetFactory, UserFactory
+from tests.factories import AssetFactory, SignalFactory, UserFactory
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -47,7 +51,6 @@ def _mbox_file(data: bytes, filename: str = "test.mbox") -> dict:
 async def plus_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     """
     Authenticated client with a 'plus' tier user + verified primary email asset.
-    The email-accounts feature requires Plus/Pro/Business.
     """
     from httpx import ASGITransport
     from httpx import AsyncClient as HxClient
@@ -86,7 +89,7 @@ async def plus_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, N
 
 
 # ---------------------------------------------------------------------------
-# Auth / tier gating
+# Auth / access
 # ---------------------------------------------------------------------------
 
 
@@ -100,31 +103,48 @@ async def test_upload_requires_auth(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_upload_rejected_for_core_tier(auth_client: AsyncClient) -> None:
+async def test_upload_allowed_for_core_tier(
+    auth_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    user = auth_client.test_user  # type: ignore[attr-defined]
+    db_session.add(
+        AssetFactory.build(
+            user_id=user.id,
+            entity_type="email",
+            value="core@example.com",
+            is_verified=True,
+            is_primary=True,
+        )
+    )
+    await db_session.commit()
+
     data = _make_mbox(("a@b.com", "Hi", "Mon, 01 Jan 2024 00:00:00 +0000"))
     with patch("backend.app.api.v1.email_accounts.process_mbox_upload"):
         response = await auth_client.post(
             "/api/v1/email-accounts/uploads", files=_mbox_file(data)
         )
-    assert response.status_code == 403
+    assert response.status_code == 202
 
 
 @pytest.mark.asyncio
-async def test_list_uploads_rejected_for_core_tier(auth_client: AsyncClient) -> None:
+async def test_list_uploads_allowed_for_core_tier(
+    auth_client: AsyncClient,
+) -> None:
     response = await auth_client.get("/api/v1/email-accounts/uploads")
-    assert response.status_code == 403
+    assert response.status_code == 200
 
 
 @pytest.mark.asyncio
-async def test_list_accounts_rejected_for_core_tier(auth_client: AsyncClient) -> None:
+async def test_list_accounts_allowed_for_core_tier(auth_client: AsyncClient) -> None:
     response = await auth_client.get("/api/v1/email-accounts/accounts")
-    assert response.status_code == 403
+    assert response.status_code == 200
 
 
 @pytest.mark.asyncio
-async def test_export_rejected_for_core_tier(auth_client: AsyncClient) -> None:
+async def test_export_allowed_for_core_tier(auth_client: AsyncClient) -> None:
     response = await auth_client.get("/api/v1/email-accounts/export")
-    assert response.status_code == 403
+    assert response.status_code == 200
 
 
 # ---------------------------------------------------------------------------
@@ -404,6 +424,7 @@ async def test_export_1password_format(plus_client: AsyncClient) -> None:
     # 1Password format has these headers
     assert "Title" in body
     assert "Website" in body
+    assert "Tags" in body
 
 
 @pytest.mark.asyncio
@@ -419,3 +440,107 @@ async def test_export_bitwarden_format(plus_client: AsyncClient) -> None:
 async def test_export_invalid_format_returns_422(plus_client: AsyncClient) -> None:
     response = await plus_client.get("/api/v1/email-accounts/export?format=invalid")
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_export_includes_priority_tags_and_verification_guidance(
+    plus_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    user = plus_client.test_user  # type: ignore[attr-defined]
+    primary_email = plus_client.test_asset.value  # type: ignore[attr-defined]
+    now = datetime.now(UTC)
+
+    db_session.add(
+        ServiceRegistry(
+            service_name="github",
+            display_name="GitHub",
+            category="developer",
+            common_domains=["github.com"],
+            login_url="https://github.com/login",
+            password_reset_url="https://github.com/password_reset",  # noqa: S106
+            is_active=True,
+        )
+    )
+    db_session.add(
+        DiscoveredAccount(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            upload_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
+            service_name="github",
+            display_name="GitHub",
+            email_used=primary_email,
+            source_type="account_confirmation",
+            login_url="https://github.com/login",
+            password_reset_url="https://github.com/password_reset",  # noqa: S106
+            sender_domain="github.com",
+            email_count=3,
+            first_seen_at=now,
+            last_seen_at=now,
+            is_reviewed=False,
+        )
+    )
+    db_session.add(
+        SignalFactory.build(
+            user_id=user.id,
+            entity_value=primary_email,
+            summary="Email found in GitHub-related breach evidence",
+        )
+    )
+    await db_session.commit()
+
+    response = await plus_client.get("/api/v1/email-accounts/export")
+    assert response.status_code == 200
+
+    rows = list(csv.DictReader(io.StringIO(response.text.lstrip("\ufeff"))))
+    assert len(rows) == 1
+    row = rows[0]
+
+    assert row["priority_label"] == "P2 HIGH"
+    assert "zima-review" in row["priority_tags"]
+    assert "breached" in row["priority_tags"]
+    assert "category:developer" in row["priority_tags"]
+    assert "VirusTotal" in row["verification_guidance"]
+    assert "rotate the password" in row["recommended_next_step"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Cross-user isolation (IDOR guard)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_alias_for_other_users_account_returns_404(
+    auth_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """
+    Attempting to create an alias for an account that belongs to a *different*
+    user must return 404, not a provider error or 500.
+    """
+    from tests.factories import UserFactory
+
+    # Create a second (victim) user and a discovered account owned by them
+    victim = UserFactory.build()
+    db_session.add(victim)
+    await db_session.flush()
+
+    victim_account = DiscoveredAccount(
+        user_id=victim.id,
+        upload_id=uuid.uuid4(),
+        service_name="github.com",
+        display_name="GitHub",
+        email_used="victim@example.com",
+        source_type="mbox",
+        sender_domain="github.com",
+        email_count=1,
+    )
+    db_session.add(victim_account)
+    await db_session.commit()
+
+    # auth_client is already authenticated as a *different* user
+    response = await auth_client.post(
+        f"/api/v1/email-accounts/accounts/{victim_account.id}/alias",
+        json={"provider": "simplelogin", "mailbox_id": 1},
+    )
+    assert response.status_code == 404

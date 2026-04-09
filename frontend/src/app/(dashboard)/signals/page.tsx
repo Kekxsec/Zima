@@ -26,12 +26,32 @@ const STATUS_OPTIONS = [
   { value: "suppressed", label: "Suppressed" },
 ]
 
+const SORT_OPTIONS = [
+  { value: "severity", label: "Severity" },
+  { value: "date", label: "Date" },
+  { value: "signal", label: "Signal" },
+] as const
+
+const SEVERITY_ORDER: Record<Signal["severity"], number> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+  info: 4,
+}
+
 function ProviderBadge({ provider }: { provider: string }) {
   return (
-    <span className="inline-flex items-center rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+    <span className="inline-flex items-center rounded border border-border bg-muted/70 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
       {provider}
     </span>
   )
+}
+
+function hasLegacyEmailPatternEvidence(signal: Signal) {
+  if (!signal.evidence || typeof signal.evidence !== "object") return false
+  const patterns = (signal.evidence as Record<string, unknown>).emailformat_patterns
+  return Array.isArray(patterns) && patterns.length > 0
 }
 
 function SignalRow({
@@ -116,6 +136,14 @@ function SignalRow({
             </div>
           )}
 
+          {signal.signal_type === "alias_exposure_detected" && hasLegacyEmailPatternEvidence(signal) && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              <span className="font-semibold">Note: </span>
+              Any `emailformat_patterns` shown below are generic naming examples for the email domain.
+              They are not proof that this exact email address exists on the detected platform.
+            </div>
+          )}
+
           {signal.tags && signal.tags.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {signal.tags.map((tag) => (
@@ -152,6 +180,7 @@ function SignalRow({
 export default function SignalsPage() {
   const qc = useQueryClient()
   const [statusFilter, setStatusFilter] = useState("open")
+  const [sortBy, setSortBy] = useState<(typeof SORT_OPTIONS)[number]["value"]>("severity")
   const [offset, setOffset] = useState(0)
   const limit = 20
 
@@ -179,17 +208,30 @@ export default function SignalsPage() {
   })
 
   const signals = data?.signals ?? []
+  const sortedSignals = [...signals].sort((a, b) => {
+    if (sortBy === "signal") {
+      return a.summary.localeCompare(b.summary) || a.signal_type.localeCompare(b.signal_type)
+    }
+
+    if (sortBy === "date") {
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    }
+
+    const severityDelta = SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]
+    if (severityDelta !== 0) return severityDelta
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  })
   const total = data?.total ?? 0
   const pages = Math.ceil(total / limit)
   const currentPage = Math.floor(offset / limit) + 1
 
   return (
-    <div className="space-y-5 max-w-4xl">
+    <div className="space-y-5">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold tracking-tight">Signals</h1>
+          <h1 className="text-xl font-bold tracking-tight">Evidence</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Raw threat intelligence collected by scan providers
+            Provider evidence behind the issues Zima found for you
           </p>
         </div>
 
@@ -209,6 +251,16 @@ export default function SignalsPage() {
             <SelectContent>
               {STATUS_OPTIONS.map((o) => (
                 <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={sortBy} onValueChange={(v) => setSortBy(v as (typeof SORT_OPTIONS)[number]["value"])}>
+            <SelectTrigger className="w-36 h-9 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SORT_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -256,7 +308,7 @@ export default function SignalsPage() {
             <span />
           </div>
           <CardContent className="p-0">
-            {signals.map((s) => (
+            {sortedSignals.map((s) => (
               <SignalRow
                 key={s.signal_id}
                 signal={s}

@@ -8,3 +8,5 @@ enabled_domains:
   - darkweb
   - backup
   - threat_intel
+  - infrastructure
+  - domain

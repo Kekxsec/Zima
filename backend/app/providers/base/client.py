@@ -64,8 +64,11 @@ class BaseProviderClient(ABC):
         """GET request. Returns parsed JSON body, or {} for 404/empty."""
         timeout = timeout or self._timeout_seconds
         tag = label or self.name
+        _timeout = httpx.Timeout(float(timeout), connect=min(5.0, float(timeout)))
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with httpx.AsyncClient(
+                timeout=_timeout, verify=True, follow_redirects=False
+            ) as client:
                 resp = await client.get(url, headers=headers or {})
         except httpx.TimeoutException as exc:
             raise ProviderTimeoutError(f"{tag} request timed out") from exc
@@ -90,8 +93,11 @@ class BaseProviderClient(ABC):
         """POST request. Returns parsed JSON body, or {} for 404/empty."""
         timeout = timeout or self._timeout_seconds
         tag = label or self.name
+        _timeout = httpx.Timeout(float(timeout), connect=min(5.0, float(timeout)))
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with httpx.AsyncClient(
+                timeout=_timeout, verify=True, follow_redirects=False
+            ) as client:
                 resp = await client.post(
                     url,
                     content=data,
