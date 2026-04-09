@@ -32,6 +32,7 @@ export interface Asset {
   user_id: string
   entity_type: string
   value: string
+  is_primary?: boolean
   is_verified: boolean
   created_at: string
   updated_at: string
@@ -107,12 +108,45 @@ export interface Finding {
   finding_type: string
   severity: Severity
   confidence: number
+  confidence_label: "high" | "medium" | "low"
   title: string
   explanation: string
   rule_name: string
   status: FindingStatus
   contributing_signal_ids: string[]
   affected_entity_ids: string[]
+  recommended_actions: string[]
+  supporting_signals: Array<{
+    signal_id: string
+    signal_type: string
+    severity: Severity
+    provider: string
+    source: string
+    summary: string
+    details: string | null
+    entity_type: string
+    entity_value: string
+    recommended_action: string | null
+    breach_name: string | null
+    breach_date: string | null
+    data_classes: string[]
+  }>
+  impacted_breaches: Array<{
+    email: string
+    breach_name: string
+    breach_date: string | null
+    provider: string
+    signal_type: string
+    summary: string
+    data_classes: string[]
+  }>
+  affected_entities: Array<{
+    id: string
+    entity_type: string
+    value: string
+    is_primary: boolean
+    is_verified: boolean
+  }>
   created_at: string
   updated_at: string
 }
@@ -253,7 +287,7 @@ export interface DiscoveredAccountListResponse {
 
 // ─── Assets ──────────────────────────────────────────────────────────────────
 
-export type DeclaredEntityType = "username" | "phone_number"
+export type DeclaredEntityType = "username" | "phone_number" | "device" | "url"
 
 export interface EmailOTPRequest {
   email: string
@@ -296,6 +330,22 @@ export interface ConnectIntegrationPayload {
 export interface IntegrationVerifyResponse {
   valid: boolean
   detail: string
+}
+
+// ─── Companion ───────────────────────────────────────────────────────────────
+
+export interface SetupTokenResponse {
+  setup_token: string
+  expires_in: number
+  user_id: string
+}
+
+export interface CompanionStatusResponse {
+  connected: boolean
+  last_seen_at: string | null
+  platform: string | null
+  version: string | null
+  extension_count: number
 }
 
 // ─── API error ───────────────────────────────────────────────────────────────
