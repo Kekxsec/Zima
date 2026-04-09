@@ -43,6 +43,23 @@ def dehashed_to_evidence(
     }
 
 
+def leakcheck_to_evidence(finding: dict[str, Any]) -> dict[str, Any]:
+    """Convert a LeakCheck finding to a BreachEvidence-compatible dict."""
+    raw: dict[str, Any] = (
+        finding.get("raw", {}) if isinstance(finding.get("raw"), dict) else {}
+    )
+    return {
+        "source_provider": "leakcheck",
+        "breach_name": raw.get("breach_name"),
+        "breach_date": raw.get("breach_date"),
+        "data_classes": list(raw.get("columns") or []),
+        "has_plaintext": bool(raw.get("has_password")),
+        "has_hash": False,  # LeakCheck columns flag presence; no hash/plain split
+        "total_records": int(raw.get("entries") or 1),
+        "raw_finding": finding,
+    }
+
+
 def breachdirectory_to_evidence(finding: dict[str, Any]) -> dict[str, Any]:
     """Convert BreachDirectory finding to evidence dict."""
     raw: dict[str, Any] = (

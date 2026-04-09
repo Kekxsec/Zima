@@ -10,6 +10,7 @@ from backend.app.providers.base.runner import run_provider
 from backend.app.providers.breach.breachdirectory.client import BreachDirectoryProvider
 from backend.app.providers.breach.dehashed.client import DehashedProvider
 from backend.app.providers.breach.hibp.client import HibpProvider
+from backend.app.providers.breach.leakcheck.client import LeakCheckProvider
 from backend.app.signals.schemas import SignalCreate
 
 logger = get_logger(__name__)
@@ -28,6 +29,13 @@ def _breach_severity_dehashed(entries: list[dict[str, Any]]) -> Severity:
 def _breach_severity_breachdirectory(raw: dict[str, Any]) -> Severity:
     """CRITICAL if plaintext present; HIGH otherwise."""
     if raw.get("has_plaintext"):
+        return Severity.CRITICAL
+    return Severity.HIGH
+
+
+def _breach_severity_leakcheck(raw: dict[str, Any]) -> Severity:
+    """CRITICAL if password columns present; HIGH otherwise."""
+    if raw.get("has_password"):
         return Severity.CRITICAL
     return Severity.HIGH
 
@@ -188,6 +196,57 @@ class BreachMonitorService(BaseModuleService):
                         "Enable MFA if not already active."
                     ),
                     source_ref=f"breachdirectory:{bd_title}",
+                )
+            )
+
+        # --- LeakCheck ---
+        lc_key = (
+            settings.leakcheck_api_key.get_secret_value()
+            if settings.leakcheck_api_key
+            else ""
+        )
+        lc_provider = LeakCheckProvider(api_key=lc_key)
+        lc_result = await run_provider(
+            provider_name="leakcheck",
+            call=lambda: lc_provider.check_leaks(email=asset_value),
+            has_credentials=True,  # public endpoint works without key (rate-limited)
+            user_id=user_id,
+            entity_type="email",
+            entity_value=asset_value,
+            ctx=ctx,
+            check_quota=True,
+        )
+
+        for finding in lc_result.findings:
+            raw = finding.get("raw", {})
+            severity = _breach_severity_leakcheck(raw if isinstance(raw, dict) else {})
+            breach_name = (
+                raw.get("breach_name", "unknown")
+                if isinstance(raw, dict)
+                else "unknown"
+            )
+            signals.append(
+                SignalCreate(
+                    signal_type="email_breached",
+                    category="identity_security",
+                    entity_type=EntityType.EMAIL,
+                    entity_id=asset_id,
+                    entity_value=asset_value,
+                    user_id=user_id,
+                    severity=severity,
+                    confidence=Confidence.HIGH,
+                    source=self.module_name,
+                    provider="leakcheck",
+                    summary=finding.get("title", f"LeakCheck breach: {asset_value}"),
+                    details=finding.get("description"),
+                    evidence={"raw_finding": finding},
+                    tags=finding.get("tags", []) + ["identity", "breach"],
+                    recommended_action=(
+                        "Rotate credentials for any services where this "
+                        "email was used. "
+                        "Enable MFA if not already active."
+                    ),
+                    source_ref=f"leakcheck:{breach_name}",
                 )
             )
 
