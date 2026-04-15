@@ -57,23 +57,6 @@ jobs:
           mkdir -p dist
           cp companion/target/${{ matrix.target }}/release/${{ matrix.binary }} dist/${{ matrix.artifact }}
 
-      # macOS codesign — only runs when APPLE_SIGNING_CERT secret is set
-      - name: Codesign (macOS)
-        if: >
-          runner.os == 'macOS' &&
-          secrets.APPLE_SIGNING_CERT != ''
-        env:
-          APPLE_SIGNING_CERT: ${{ secrets.APPLE_SIGNING_CERT }}
-          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-        run: |
-          echo "$APPLE_SIGNING_CERT" | base64 --decode > /tmp/signing_cert.p12
-          security create-keychain -p "" build.keychain
-          security import /tmp/signing_cert.p12 -k build.keychain -P "$APPLE_CERT_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
-          security list-keychains -d user -s build.keychain
-          codesign --force --options runtime --sign "$APPLE_SIGNING_IDENTITY" dist/${{ matrix.artifact }}
-
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
