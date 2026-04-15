@@ -34,7 +34,7 @@ import enum
 from typing import Any
 
 
-class RetentionClass(str, enum.Enum):
+class RetentionClass(enum.StrEnum):
     EPHEMERAL_RAW = "ephemeral_raw"
     DURABLE_PRODUCT = "durable_product"
     IMMUTABLE_AUDIT = "immutable_audit"

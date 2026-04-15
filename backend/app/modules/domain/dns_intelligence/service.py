@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from backend.app.core.config import settings
 from backend.app.core.enums import Confidence, EntityType, Severity
 from backend.app.core.logging import get_logger
+from backend.app.modules.base.outcome import ModuleOutcome
 from backend.app.modules.base.service import BaseModuleService
 from backend.app.providers.base.runner import run_provider
 from backend.app.providers.domain.whois.client import WhoisProvider
@@ -29,7 +30,7 @@ class DomainDNSIntelligenceService(BaseModuleService):
         asset_id: uuid.UUID,
         asset_value: str,
         ctx: ScanExecutionContext | None = None,
-    ) -> list[SignalCreate]:
+    ) -> ModuleOutcome:
         signals: list[SignalCreate] = []
 
         whois_key = (
@@ -80,4 +81,4 @@ class DomainDNSIntelligenceService(BaseModuleService):
             domain=asset_value,
             signals_emitted=len(signals),
         )
-        return signals
+        return ModuleOutcome(signals=signals)

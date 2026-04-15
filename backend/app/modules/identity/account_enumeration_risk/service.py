@@ -1,14 +1,21 @@
 # backend/app/modules/identity/account_enumeration_risk/service.py
+from __future__ import annotations
+
 import uuid
+from typing import TYPE_CHECKING
 
 from backend.app.core.config import settings
 from backend.app.core.enums import Confidence, EntityType, Severity
 from backend.app.core.logging import get_logger
+from backend.app.modules.base.outcome import ModuleOutcome
 from backend.app.modules.base.service import BaseModuleService
 from backend.app.providers.base.runner import run_provider
 from backend.app.providers.reputation.emailrep.client import EmailrepProvider
 from backend.app.providers.tools.holehe.client import HoleheProvider
 from backend.app.signals.schemas import SignalCreate
+
+if TYPE_CHECKING:
+    from backend.app.jobs.context import ScanExecutionContext
 
 logger = get_logger(__name__)
 
@@ -35,8 +42,8 @@ class AccountEnumerationRiskService(BaseModuleService):
         user_id: uuid.UUID,
         asset_id: uuid.UUID,
         asset_value: str,
-        ctx: object = None,
-    ) -> list[SignalCreate]:
+        ctx: ScanExecutionContext | None = None,
+    ) -> ModuleOutcome:
         signals: list[SignalCreate] = []
 
         emailrep_key = (
@@ -104,6 +111,7 @@ class AccountEnumerationRiskService(BaseModuleService):
                         "Check for signs of spam or abuse from this address. "
                         "Review account activity."
                     ),
+                    source_ref=f"emailrep:{asset_value}",
                 )
             )
 
@@ -162,6 +170,7 @@ class AccountEnumerationRiskService(BaseModuleService):
                             "Reduce your account footprint by closing dormant "
                             "accounts. Use email aliases for new registrations."
                         ),
+                        source_ref=f"tool_holehe:{asset_value}",
                     )
                 )
 
@@ -170,4 +179,4 @@ class AccountEnumerationRiskService(BaseModuleService):
             user_id=str(user_id),
             signals_emitted=len(signals),
         )
-        return signals
+        return ModuleOutcome(signals=signals)

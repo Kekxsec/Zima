@@ -1,38 +1,20 @@
 {
   "main": {
-    "id": "b636051540018b0f",
+    "id": "8633e858fda0f11c",
     "type": "split",
     "children": [
       {
-        "id": "46b45608140f90f6",
+        "id": "b73989cc48c85f3a",
         "type": "tabs",
         "children": [
           {
-            "id": "d6175ebf33b9c9f7",
+            "id": "653371cdbaec749c",
             "type": "leaf",
             "state": {
-              "type": "markdown",
-              "state": {
-                "file": "Zima/MVP Build/launch-execution-guide.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "launch-execution-guide"
-            }
-          },
-          {
-            "id": "4756313f47c01586",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "Zima/MVP Build/launch-execution-guide.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "launch-execution-guide"
+              "type": "graph",
+              "state": {},
+              "icon": "lucide-git-fork",
+              "title": "Graph view"
             }
           }
         ]
@@ -41,15 +23,15 @@
     "direction": "vertical"
   },
   "left": {
-    "id": "84e9ea9405669cde",
+    "id": "beef8184366c11e3",
     "type": "split",
     "children": [
       {
-        "id": "d2a00a433b968f2b",
+        "id": "237d7e6d5df5c160",
         "type": "tabs",
         "children": [
           {
-            "id": "dc188a4ffde7cca5",
+            "id": "08e216fbb226ddeb",
             "type": "leaf",
             "state": {
               "type": "file-explorer",
@@ -62,7 +44,7 @@
             }
           },
           {
-            "id": "216ff316e6f40c38",
+            "id": "f8f8b99cc1c31905",
             "type": "leaf",
             "state": {
               "type": "search",
@@ -79,7 +61,7 @@
             }
           },
           {
-            "id": "cb1d5dc34e58a5e7",
+            "id": "bc7590a06dcd2779",
             "type": "leaf",
             "state": {
               "type": "bookmarks",
@@ -92,18 +74,18 @@
       }
     ],
     "direction": "horizontal",
-    "width": 313.5
+    "width": 494.5
   },
   "right": {
-    "id": "1244c7d8a27b700f",
+    "id": "3383966b5cfd1f5e",
     "type": "split",
     "children": [
       {
-        "id": "a2c0851a4555edd1",
+        "id": "c6bc5f71ed816e59",
         "type": "tabs",
         "children": [
           {
-            "id": "55b8a8e74af1bd00",
+            "id": "e820d1f7a5890f32",
             "type": "leaf",
             "state": {
               "type": "backlink",
@@ -121,7 +103,7 @@
             }
           },
           {
-            "id": "a2b6ca308de0436d",
+            "id": "c3bd5e138b55b10d",
             "type": "leaf",
             "state": {
               "type": "outgoing-link",
@@ -134,7 +116,7 @@
             }
           },
           {
-            "id": "6414b55f1dd533f5",
+            "id": "7d6aee1e0025803f",
             "type": "leaf",
             "state": {
               "type": "tag",
@@ -149,7 +131,7 @@
             }
           },
           {
-            "id": "68b4316b4f34ccfa",
+            "id": "3864f582421bab16",
             "type": "leaf",
             "state": {
               "type": "all-properties",
@@ -163,7 +145,7 @@
             }
           },
           {
-            "id": "2870ffb8d966ba98",
+            "id": "0a29f2d00821c38f",
             "type": "leaf",
             "state": {
               "type": "outline",
@@ -194,49 +176,25 @@
       "bases:Create new base": false
     }
   },
-  "active": "d6175ebf33b9c9f7",
+  "active": "653371cdbaec749c",
   "lastOpenFiles": [
-    "Zima/Research/Providers/tools/chromium_enterprise_policies/prompt.md",
-    "Zima/Research/Providers/threat_intel/darkeye/prompt.md",
-    "Zima/Research/Providers/tools/huginn_muninn/prompt.md",
-    "Zima/Research/Providers/tools/frankenstein/prompt.md",
-    "Zima/Research/Providers/threat_intel/intelx/prompt.md",
-    "Zima/Research/Providers/threat_intel/leakix/prompt.md",
-    "Zima/Research/Providers/tools/oui_master_database/prompt.md",
-    "Zima/Research/Providers/threat_intel/darkeye/output.md",
-    "Zima/Research/Providers/tools/huginn_muninn/output.md",
-    "Zima/Research/Providers/tools/frankenstein/output.md",
-    "Zima/Research/Providers/threat_intel/intelx/output.md",
-    "Zima/Research/Providers/threat_intel/leakix/output.md",
-    "Zima/Research/Providers/tools/oui_master_database/output.md",
-    "Zima/Research/Providers/threat_intel/darkeye/darkeye.md",
-    "Zima/Research/Providers/tools/huginn_muninn/huginn_muninn.md",
-    "Zima/Research/Providers/tools/frankenstein/frankenstein.md",
-    "Zima/Research/Providers/threat_intel/intelx/intelx.md",
-    "Zima/Research/Providers/threat_intel/leakix/leakix.md",
-    "Zima/Research/Providers/tools/oui_master_database/oui_master_database.md",
-    "Zima/Research/Providers/threat_intel/darkeye",
-    "Zima/Research/Providers/tools/huginn_muninn",
-    "Zima/Research/Providers/tools/frankenstein",
-    "Zima/Research/Providers/threat_intel/intelx",
-    "Zima/Research/Providers/threat_intel/leakix",
-    "Zima/Research/Providers/tools/oui_master_database",
-    "Zima/Research/Providers/tools/firefox_enterprise_policies/prompt.md",
-    "Zima/Research/Providers/cloud/chrome_web_store_api/prompt.md",
-    "Zima/Research/Providers/tools/chromium_enterprise_policies/output.md",
-    "Zima/Research/Providers/social/epieos/prompt.md",
-    "Zima/Research/Providers/social/epieos/output.md",
-    "Zima/Research/Providers/social/accounts/prompt.md",
-    "Zima/Research/awesome-osint-mcp-servers.md",
-    "Zima/Research/Providers/tools/mailcat",
-    "Zima/Research/Providers/tools/socid_extractor",
-    "Zima/Research/Providers/social/serus",
-    "Zima/Research/Providers/breach/serus.ai",
-    "Untitled 5.canvas",
-    "Untitled 4.canvas",
-    "Untitled 2.canvas",
-    "Untitled 1.canvas",
+    "MVP Build/codex-execution-plan.md",
+    "Zima.md",
+    "Research/Providers/breach/hibp/output.md",
+    "Research/Providers/breach/hibp/prompt.md",
+    "Research/Providers/breach/hibp/hibp.md",
     "Untitled.canvas",
-    "Untitled 3.canvas"
+    "next-steps-to-launch.md",
+    "Untitled 1.canvas",
+    "Archive/MVP Build 2026/MVP Master.md",
+    "Bases/meaningful-orphans.base",
+    "Bases/llm-excluded-artifacts.base",
+    "Bases/canonical-docs.base",
+    "Bases/broken-link-notes.base",
+    "Bases",
+    "Architecture/section-01-overview.md",
+    "Architecture/Design Principles.md",
+    "Architecture/CLAUDE-CODE-BRIEFING.md",
+    "Research/Providers/social/serus/prompt.md"
   ]
 }

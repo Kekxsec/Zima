@@ -1,119 +1,75 @@
 # backend/app/jobs/runner.py
 import asyncio
 import uuid
+from typing import TypedDict
 
+from backend.app.active.modules import ACTIVE_MODULES
+from backend.app.active.specs import ModuleSpec
 from backend.app.core.enums import Tier
 from backend.app.core.logging import get_logger
 from backend.app.db.repositories.assets import AssetRepository
 from backend.app.db.repositories.discovered_accounts import DiscoveredAccountRepository
 from backend.app.db.repositories.service_registry import ServiceRegistryRepository
 from backend.app.db.repositories.signals import SignalRepository
-from backend.app.email_accounts.scan_inventory import (
-    build_account_upsert_payload,
-    is_scan_account_signal,
-)
+from backend.app.email_accounts.scan_inventory import build_account_upsert_payload
 from backend.app.jobs.context import ScanExecutionContext
 from backend.app.modules.base.service import BaseModuleService
-from backend.app.modules.browser.browser_configuration.service import (
-    BrowserConfigurationService,
-)
-from backend.app.modules.browser.extension_risk.service import ExtensionRiskService
-from backend.app.modules.device.device_inventory.service import DeviceInventoryService
-from backend.app.modules.device.firewall_status.service import FirewallStatusService
-from backend.app.modules.device.os_security.service import OsSecurityService
-from backend.app.modules.device.patch_status.service import PatchStatusService
-from backend.app.modules.device.software_inventory.service import (
-    SoftwareInventoryService,
-)
-from backend.app.modules.device.software_vulnerability.service import (
-    SoftwareVulnerabilityService,
-)
-from backend.app.modules.domain.dns_intelligence.service import (
-    DomainDNSIntelligenceService,
-)
-from backend.app.modules.domain.domain_reputation.service import (
-    DomainReputationService,
-)
-from backend.app.modules.identity.account_enumeration_risk.service import (
-    AccountEnumerationRiskService,
-)
-from backend.app.modules.identity.account_inventory.service import (
-    AccountInventoryService,
-)
-from backend.app.modules.identity.alias_correlation.service import (
-    AliasCorrelationService,
-)
-from backend.app.modules.identity.breach_monitor.service import BreachMonitorService
-from backend.app.modules.identity.credential_exposure.service import (
-    CredentialExposureService,
-)
-from backend.app.modules.identity.darkweb_identity_monitor.service import (
-    DarkwebIdentityMonitorService,
-)
-from backend.app.modules.identity.email_reputation.service import (
-    EmailReputationService,
-)
-from backend.app.modules.identity.maigret_scan.service import MaigretScanService
-from backend.app.modules.identity.phone_exposure.service import PhoneExposureService
-from backend.app.modules.identity.public_profile_scan.service import (
-    PublicProfileScanService,
-)
-from backend.app.modules.identity.stealer_log_exposure.service import (
-    StealerLogExposureService,
-)
-from backend.app.modules.identity.username_exposure.service import (
-    UsernameExposureService,
-)
-from backend.app.modules.infrastructure.infrastructure_exposure.service import (
-    InfrastructureExposureService,
-)
+from backend.app.providers.base.models import ProviderPermissionContext
+from backend.app.providers.base.policy import evaluate_provider_policy
 from backend.app.tiers.loader import get_enabled_domains
 
 logger = get_logger(__name__)
 
-# Module registry — add new module classes here as they are built.
-# Key: domain name matching tiers/config/*.yaml enabled_domains values.
-# Value: list of module service classes for that domain.
 # Hard cap per module per asset — prevents a single stalled provider from
 # blocking the entire scan indefinitely. Individual providers have their own
 # shorter timeouts; this is a belt-and-suspenders safety net.
 _MODULE_ASSET_TIMEOUT_SECONDS = 120
 
-DOMAIN_MODULES: dict[str, list[type[BaseModuleService]]] = {
-    "identity": [
-        BreachMonitorService,
-        StealerLogExposureService,
-        CredentialExposureService,
-        UsernameExposureService,
-        MaigretScanService,
-        PhoneExposureService,
-        AccountInventoryService,
-        AccountEnumerationRiskService,
-        AliasCorrelationService,
-        DarkwebIdentityMonitorService,
-        PublicProfileScanService,
-        EmailReputationService,
-    ],
-    "browser": [
-        BrowserConfigurationService,
-        ExtensionRiskService,
-    ],
-    "device": [
-        OsSecurityService,
-        PatchStatusService,
-        SoftwareVulnerabilityService,
-        FirewallStatusService,
-        DeviceInventoryService,
-        SoftwareInventoryService,
-    ],
-    "infrastructure": [
-        InfrastructureExposureService,
-    ],
-    "domain": [
-        DomainDNSIntelligenceService,
-        DomainReputationService,
-    ],
-}
+
+def _policy_allows_module(spec: ModuleSpec, ctx: ScanExecutionContext | None) -> bool:
+    """Apply evaluate_provider_policy at the module (orchestrator) level.
+
+    Builds a PermissionContext from the scan context (or a safe default) and
+    checks whether the module's canonical name is blocked by an explicit deny
+    list or prefix rule.  Credential presence is NOT checked here — that is
+    each provider's responsibility via run_provider().  This gate only enforces
+    explicit orchestrator-level deny rules (e.g. regional restrictions, scan-
+    type exclusions).
+    """
+    if ctx is not None:
+        perm_ctx = ctx.to_permission_context()
+    else:
+        perm_ctx = ProviderPermissionContext(scan_type="full", tier="core", region=None)
+
+    decision = evaluate_provider_policy(
+        provider_name=spec.service_class.module_name,
+        has_credentials=True,  # credential check delegated to providers
+        context=perm_ctx,
+    )
+    if not decision.allowed:
+        logger.info(
+            "runner.module_policy_denied",
+            module=spec.service_class.module_name,
+            reason=decision.reason,
+        )
+    return decision.allowed
+
+
+def _get_runnable_specs(tier: Tier) -> list[ModuleSpec]:
+    """Return specs eligible to run for the given tier.
+
+    A spec is runnable when its domain is enabled for the tier (per tier
+    YAML) AND its status is "active". Deferred specs are always excluded.
+    Policy enforcement (deny lists, prefix rules) is applied per-asset in
+    _run_module via _policy_allows_module.
+    """
+    enabled = set(get_enabled_domains(tier))
+    return [s for s in ACTIVE_MODULES if s.domain in enabled and s.status == "active"]
+
+
+class RunResult(TypedDict):
+    signals_created: int
+    domains_run: list[str]
 
 
 class ModuleRunner:
@@ -135,35 +91,40 @@ class ModuleRunner:
         tier: Tier,
         target_email_asset_ids: list[str] | None = None,
         ctx: ScanExecutionContext | None = None,
-    ) -> dict[str, int | list[str]]:
+    ) -> RunResult:
         """
         Runs all enabled module domains for this user's tier.
         Returns a summary dict with 'signals_created' and 'domains_run'.
         ctx, if provided, receives module-level events for scan history.
         """
-        enabled_domains = get_enabled_domains(tier)
+        runnable = _get_runnable_specs(tier)
         signals_created = 0
+        domains_seen: list[str] = []
         domains_run: list[str] = []
 
-        for domain in enabled_domains:
-            module_classes = DOMAIN_MODULES.get(domain, [])
-            if not module_classes:
+        for spec in runnable:
+            if spec.domain not in domains_seen:
+                domains_seen.append(spec.domain)
+                if ctx is not None:
+                    ctx.record_event("stage_started", stage=f"domain:{spec.domain}")
+
+            # Orchestrator-level policy gate: explicit deny lists / prefix rules.
+            # Credential presence is not checked here — that is each provider's
+            # responsibility via run_provider() inside the module service.
+            if not _policy_allows_module(spec, ctx):
                 continue
 
-            if ctx is not None:
-                ctx.record_event("stage_started", stage=f"domain:{domain}")
+            module = spec.service_class()
+            count = await self._run_module(
+                module,
+                user_id,
+                target_email_asset_ids=target_email_asset_ids,
+                ctx=ctx,
+            )
+            signals_created += count
 
-            for module_class in module_classes:
-                module = module_class()
-                count = await self._run_module(
-                    module,
-                    user_id,
-                    target_email_asset_ids=target_email_asset_ids,
-                    ctx=ctx,
-                )
-                signals_created += count
-
-            domains_run.append(domain)
+            if spec.domain not in domains_run:
+                domains_run.append(spec.domain)
 
         return {"signals_created": signals_created, "domains_run": domains_run}
 
@@ -193,7 +154,7 @@ class ModuleRunner:
                 assets = [a for a in assets if str(a.id) in allowed_email_asset_ids]
             for asset in assets:
                 try:
-                    signals = await asyncio.wait_for(
+                    outcome = await asyncio.wait_for(
                         module.run(
                             user_id=user_id,
                             asset_id=asset.id,
@@ -202,16 +163,17 @@ class ModuleRunner:
                         ),
                         timeout=_MODULE_ASSET_TIMEOUT_SECONDS,
                     )
+                    # Persist account-discovery signals via account_repo
+                    for signal in outcome.account_signals:
+                        account_payload = await build_account_upsert_payload(
+                            signal,
+                            self.service_registry_repo,
+                        )
+                        if account_payload is not None:
+                            await self.account_repo.upsert(**account_payload)
+                    # Persist regular signals via signal_repo (budget-gated)
                     asset_signals = 0
-                    for signal in signals:
-                        if is_scan_account_signal(signal):
-                            account_payload = await build_account_upsert_payload(
-                                signal,
-                                self.service_registry_repo,
-                            )
-                            if account_payload is not None:
-                                await self.account_repo.upsert(**account_payload)
-                            continue
+                    for signal in outcome.signals:
                         # Enforce per-provider and total signal budgets
                         if ctx is not None and not ctx.record_signal_emitted(
                             module.module_name
@@ -221,12 +183,11 @@ class ModuleRunner:
                                 module=module.module_name,
                                 asset_id=str(asset.id),
                             )
-                            if ctx is not None:
-                                ctx.record_event(
-                                    "budget_exceeded",
-                                    module=module.module_name,
-                                    asset_id=str(asset.id),
-                                )
+                            ctx.record_event(
+                                "budget_exceeded",
+                                module=module.module_name,
+                                asset_id=str(asset.id),
+                            )
                             continue
                         await self.signal_repo.upsert(signal)
                         count += 1

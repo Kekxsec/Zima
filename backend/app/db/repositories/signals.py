@@ -57,7 +57,13 @@ class SignalRepository:
                 set_={
                     "status": SignalStatus.OPEN,
                     "severity": data.severity.value,
+                    "confidence": data.confidence.value,
+                    "provider": data.provider,
+                    "summary": data.summary,
+                    "details": data.details,
                     "evidence": safe_evidence,
+                    "tags": data.tags,
+                    "recommended_action": data.recommended_action,
                     "updated_at": func.now(),
                 },
             )
@@ -173,6 +179,7 @@ class SignalRepository:
                 Signal.signal_type.in_(
                     ["email_breached", "credential_exposure", "stealer_log_exposure"]
                 ),
+                Signal.status == SignalStatus.OPEN,
             )
             .distinct()
         )

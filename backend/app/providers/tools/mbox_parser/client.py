@@ -5,7 +5,8 @@ MboxParserProvider — reads an mbox byte-stream, extracts per-message metadata.
 Rules enforced here:
 - Raw email bodies are NEVER stored or returned.
 - Only headers (From, To, Subject, Date, Message-ID, List-*) are parsed.
-- No disk I/O — parsing is entirely in-memory.
+- Supports both in-memory bytes and temp-file parsing so uploads do not need
+  to be materialised twice in memory.
 - Deduplicates by Message-ID within the same parse call.
 """
 
@@ -14,11 +15,15 @@ from __future__ import annotations
 import email
 import email.utils
 import hashlib
+import io
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from email.header import decode_header, make_header
 from email.message import Message
 from email.parser import BytesParser
 from email.policy import default as default_policy
+from pathlib import Path
+from typing import BinaryIO
 
 from backend.app.providers.tools.mbox_parser.models import ParsedEmail
 
@@ -44,6 +49,42 @@ def _extract_domain(address: str | None) -> str | None:
     return domain if domain else None
 
 
+def _normalise_addresses(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+
+    addresses: list[str] = []
+    seen: set[str] = set()
+    for _, addr in email.utils.getaddresses([raw]):
+        normalised = addr.strip().lower()
+        if "@" not in normalised or normalised in seen:
+            continue
+        seen.add(normalised)
+        addresses.append(normalised)
+    return addresses
+
+
+def _extract_references(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    references: list[str] = []
+    seen: set[str] = set()
+    for token in raw.split():
+        ref = token.strip()
+        if not ref:
+            continue
+        if not ref.startswith("<"):
+            ref = f"<{ref}>"
+        if not ref.endswith(">"):
+            ref = f"{ref}>"
+        ref = ref.lower()
+        if ref in seen:
+            continue
+        seen.add(ref)
+        references.append(ref)
+    return references
+
+
 def _parse_date(raw: str | None) -> datetime | None:
     if not raw:
         return None
@@ -56,9 +97,9 @@ def _parse_date(raw: str | None) -> datetime | None:
 
 class MboxParserProvider:
     """
-    Parses a raw mbox file (bytes) into a list of ParsedEmail objects.
+    Parses a raw mbox file into a list of ParsedEmail objects.
 
-    - Splits the mbox byte stream in memory; never writes uploads to disk.
+    - Supports bytes and temp-file inputs without loading the upload twice.
     - Deduplicates by Message-ID within the same parse call.
     - Hard cap at MAX_MESSAGES to prevent OOM on large files.
     - Thread-safe: stateless, creates fresh parser state per call.
@@ -74,88 +115,141 @@ class MboxParserProvider:
         """
         Parse raw mbox bytes. Returns list of ParsedEmail (headers only, no body).
         """
-        results: list[ParsedEmail] = []
-        seen_ids: set[str] = set()
+        return list(self.iter_parse(data))
 
-        for i, msg in enumerate(_iter_mbox_messages(data)):
+    def parse_file(self, path: str | Path) -> list[ParsedEmail]:
+        """Parse an mbox file from disk without materialising it as bytes first."""
+        return list(self.iter_parse_file(path))
+
+    def iter_parse(self, data: bytes) -> Iterator[ParsedEmail]:
+        """Yield ParsedEmail records one at a time from an mbox byte stream."""
+        yield from self._iter_parsed_messages(
+            _iter_mbox_messages_from_stream(io.BytesIO(data))
+        )
+
+    def iter_parse_file(self, path: str | Path) -> Iterator[ParsedEmail]:
+        """Yield ParsedEmail records one at a time from an mbox file on disk."""
+        with Path(path).open("rb") as stream:
+            yield from self._iter_parsed_messages(
+                _iter_mbox_messages_from_stream(stream)
+            )
+
+    def _iter_parsed_messages(
+        self,
+        messages: Iterator[tuple[Message, int]],
+    ) -> Iterator[ParsedEmail]:
+        """Normalise and deduplicate a message stream into ParsedEmail objects."""
+        seen_keys: set[str] = set()
+
+        for i, (msg, message_size_bytes) in enumerate(messages):
             if i >= self.MAX_MESSAGES:
                 break
-            parsed = self._parse_message(msg)
+            parsed = self._parse_message(msg, message_size_bytes)
             if parsed is None:
                 continue
-            # Dedup by Message-ID
-            if parsed.message_id:
-                norm_id = parsed.message_id.strip()
-                if norm_id in seen_ids:
-                    continue
-                seen_ids.add(norm_id)
-            results.append(parsed)
+            dedup_key = _build_dedup_key(parsed)
+            if dedup_key in seen_keys:
+                continue
+            seen_keys.add(dedup_key)
+            yield parsed
 
-        return results
-
-    def _parse_message(self, msg: Message) -> ParsedEmail | None:
+    def _parse_message(
+        self,
+        msg: Message,
+        message_size_bytes: int,
+    ) -> ParsedEmail | None:
         try:
             from_raw = msg.get("From", "") or ""
             from_name_raw, from_addr_raw = email.utils.parseaddr(from_raw)
             from_addr = from_addr_raw.lower().strip() if from_addr_raw else None
+            to_addresses = _normalise_addresses(msg.get("To"))
+            reply_to_addresses = _normalise_addresses(msg.get("Reply-To"))
 
             if not from_addr or "@" not in from_addr:
                 return None
 
             return ParsedEmail(
-                message_id=msg.get("Message-ID"),
+                message_id=(msg.get("Message-ID") or "").strip().lower() or None,
                 subject=_decode_header_value(msg.get("Subject")),
                 from_address=from_addr,
                 from_name=(
                     _decode_header_value(from_name_raw) if from_name_raw else None
                 ),
                 sender_domain=_extract_domain(from_addr),
-                to_address=msg.get("To"),
+                to_address=to_addresses[0] if to_addresses else None,
+                to_addresses=to_addresses,
                 date=_parse_date(msg.get("Date")),
+                references=_extract_references(msg.get("References")),
                 list_id=_decode_header_value(msg.get("List-ID")),
                 list_unsubscribe=msg.get("List-Unsubscribe"),
-                reply_to=msg.get("Reply-To"),
+                precedence=_decode_header_value(msg.get("Precedence")),
+                reply_to=reply_to_addresses[0] if reply_to_addresses else None,
+                mime_type=msg.get_content_type(),
+                message_size_bytes=message_size_bytes,
             )
         except Exception:
             return None
 
 
-def _iter_mbox_messages(data: bytes) -> list[Message]:
+def _iter_mbox_messages_from_stream(
+    stream: BinaryIO,
+) -> Iterator[tuple[Message, int]]:
     """
-    Parse an mbox byte stream entirely in memory.
+    Parse an mbox byte stream incrementally from a binary stream.
 
     stdlib mailbox.mbox requires a filesystem path, which does not fit the
-    upload pipeline. We split on mbox separator lines and parse each message
-    with the email package instead.
+    upload pipeline well. We iterate over one message chunk at a time so large
+    mbox uploads do not materialise every message twice in memory.
     """
-    if not data:
-        return []
-
     parser = BytesParser(policy=default_policy)
-    return [parser.parsebytes(chunk) for chunk in _split_mbox(data)]
+    for chunk in _iter_mbox_chunks_from_stream(stream):
+        yield parser.parsebytes(chunk), len(chunk)
 
 
 def _split_mbox(data: bytes) -> list[bytes]:
     """Split an mbox byte stream into raw RFC822 message payloads."""
-    if not data:
-        return []
+    return list(_iter_mbox_chunks_from_stream(io.BytesIO(data)))
 
-    chunks: list[bytes] = []
-    current: list[bytes] = []
+
+def _iter_mbox_chunks_from_stream(stream: BinaryIO) -> Iterator[bytes]:
+    """Yield one raw RFC822 message payload at a time from an mbox stream."""
+    current = bytearray()
     in_message = False
 
-    for line in data.splitlines(keepends=True):
+    while True:
+        line = stream.readline()
+        if not line:
+            break
         if line.startswith(b"From "):
             in_message = True
             if current:
-                chunks.append(b"".join(current))
-                current = []
+                yield bytes(current)
+                current.clear()
             continue
         if not in_message:
             continue
-        current.append(line)
+        current.extend(line)
 
     if current:
-        chunks.append(b"".join(current))
+        yield bytes(current)
 
-    return chunks
+
+def _build_dedup_key(parsed: ParsedEmail) -> str:
+    """Build a stable deduplication key for one parsed message."""
+    if parsed.message_id:
+        return f"message-id:{parsed.message_id}"
+
+    minute_bucket = ""
+    if parsed.date is not None:
+        minute_bucket = str(int(parsed.date.timestamp() // 60))
+
+    fallback = "|".join(
+        [
+            parsed.from_address or "",
+            parsed.to_address or "",
+            (parsed.subject or "").strip().lower(),
+            minute_bucket,
+        ]
+    )
+    digest = hashlib.sha256(fallback.encode("utf-8")).hexdigest()
+    return f"fallback:{digest}"

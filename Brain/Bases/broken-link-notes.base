@@ -1,0 +1,7 @@
+filters:
+  and:
+    - file.hasProperty("broken_links")
+    - broken_links > 0
+views:
+  - type: table
+    name: Broken-Link Notes

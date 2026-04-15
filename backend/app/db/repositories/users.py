@@ -64,6 +64,32 @@ class UserRepository:
             .values(tier=tier, stripe_subscription_id=stripe_subscription_id)
         )
 
+    async def get_users_with_incomplete_deletion(self) -> list[User]:
+        """
+        Returns users whose soft-delete ran (deleted_at IS NOT NULL) but whose
+        personal-data erasure did not complete (tier != 'deleted').
+        Used by the startup recovery job to re-enqueue stale GDPR deletions.
+        """
+        result = await self.session.execute(
+            select(User).where(
+                User.deleted_at.is_not(None),
+                User.tier != "deleted",
+            )
+        )
+        return list(result.scalars().all())
+
+    async def update_stripe_customer_id(
+        self,
+        user_id: uuid.UUID,
+        customer_id: str,
+    ) -> None:
+        """Persists a newly-created Stripe customer ID on the user row."""
+        await self.session.execute(
+            update(User)
+            .where(User.id == user_id)
+            .values(stripe_customer_id=customer_id)
+        )
+
     async def scrub_pii(self, user_id: uuid.UUID) -> None:
         """Null out PII while keeping the row for billing and audit integrity."""
         await self.session.execute(

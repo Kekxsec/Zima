@@ -1,0 +1,7 @@
+filters:
+  and:
+    - kind == "canonical"
+    - llm_include == true
+views:
+  - type: table
+    name: Canonical Docs

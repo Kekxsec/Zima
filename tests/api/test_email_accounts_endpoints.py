@@ -6,6 +6,7 @@ import io
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -203,7 +204,8 @@ async def test_upload_enqueues_background_task(plus_client: AsyncClient) -> None
     assert "session" not in kwargs
     assert "user_id" in kwargs
     assert "upload_id" in kwargs
-    assert "mbox_bytes" in kwargs
+    assert "mbox_path" in kwargs
+    Path(kwargs["mbox_path"]).unlink(missing_ok=True)
 
 
 @pytest.mark.asyncio
@@ -483,6 +485,7 @@ async def test_export_includes_priority_tags_and_verification_guidance(
     db_session.add(
         SignalFactory.build(
             user_id=user.id,
+            entity_id=plus_client.test_asset.id,  # type: ignore[attr-defined]
             entity_value=primary_email,
             summary="Email found in GitHub-related breach evidence",
         )

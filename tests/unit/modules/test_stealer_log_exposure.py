@@ -59,12 +59,12 @@ async def test_run_emits_one_signal_per_stealer_entry() -> None:
             hudson_rock_api_key=SecretStr("test-api-key"),
         ),
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=uuid.uuid4(),
             asset_id=uuid.uuid4(),
             asset_value="test@example.com",
         )
-    assert len(signals) == 2
+    assert len(outcome.signals) == 2
 
 
 @pytest.mark.asyncio
@@ -80,12 +80,12 @@ async def test_run_returns_empty_list_when_no_stealers() -> None:
             hudson_rock_api_key=SecretStr("test-api-key"),
         ),
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=uuid.uuid4(),
             asset_id=uuid.uuid4(),
             asset_value="clean@example.com",
         )
-    assert signals == []
+    assert outcome.signals == []
 
 
 @pytest.mark.asyncio
@@ -96,12 +96,12 @@ async def test_run_skips_silently_when_api_key_not_set() -> None:
         "backend.app.modules.identity.stealer_log_exposure.service.settings",
         hudson_rock_api_key=None,
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=uuid.uuid4(),
             asset_id=uuid.uuid4(),
             asset_value="test@example.com",
         )
-    assert signals == []
+    assert outcome.signals == []
 
 
 @pytest.mark.asyncio
@@ -118,12 +118,12 @@ async def test_run_degrades_gracefully_on_provider_error() -> None:
             hudson_rock_api_key=SecretStr("test-api-key"),
         ),
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=uuid.uuid4(),
             asset_id=uuid.uuid4(),
             asset_value="test@example.com",
         )
-    assert signals == []
+    assert outcome.signals == []
 
 
 @pytest.mark.asyncio
@@ -141,13 +141,13 @@ async def test_signal_has_correct_fields() -> None:
             hudson_rock_api_key=SecretStr("test-api-key"),
         ),
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=user_id,
             asset_id=asset_id,
             asset_value="test@example.com",
         )
-    assert len(signals) == 1
-    sig = signals[0]
+    assert len(outcome.signals) == 1
+    sig = outcome.signals[0]
     assert sig.signal_type == "stealer_log_hit"
     assert sig.entity_type == EntityType.EMAIL
     assert sig.entity_id == asset_id
@@ -172,12 +172,12 @@ async def test_source_ref_includes_date_for_dedup() -> None:
             hudson_rock_api_key=SecretStr("test-api-key"),
         ),
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=uuid.uuid4(),
             asset_id=uuid.uuid4(),
             asset_value="test@example.com",
         )
-    source_refs = [s.source_ref for s in signals]
+    source_refs = [s.source_ref for s in outcome.signals]
     assert source_refs[0] == "hudson_rock:2024-01-15"
     assert source_refs[1] == "hudson_rock:2024-03-20"
     assert source_refs[0] != source_refs[1]
@@ -197,12 +197,12 @@ async def test_evidence_does_not_include_passwords() -> None:
             hudson_rock_api_key=SecretStr("test-api-key"),
         ),
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=uuid.uuid4(),
             asset_id=uuid.uuid4(),
             asset_value="test@example.com",
         )
-    evidence = signals[0].evidence or {}
+    evidence = outcome.signals[0].evidence or {}
     assert "passwords" not in evidence
     assert "top_passwords" not in evidence
     assert "credentials" not in evidence

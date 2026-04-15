@@ -16,14 +16,20 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 from backend.app.core.config import settings
 from backend.app.core.enums import Confidence, EntityType, Severity
 from backend.app.core.logging import get_logger
+from backend.app.modules.base.outcome import ModuleOutcome
 from backend.app.modules.base.service import BaseModuleService
+from backend.app.providers.base.models import ProviderFinding
 from backend.app.providers.base.runner import run_provider
 from backend.app.providers.threat_intel.leakix.client import LeakIXProvider
 from backend.app.signals.schemas import SignalCreate
+
+if TYPE_CHECKING:
+    from backend.app.jobs.context import ScanExecutionContext
 
 logger = get_logger(__name__)
 
@@ -53,8 +59,8 @@ class InfrastructureExposureService(BaseModuleService):
         user_id: uuid.UUID,
         asset_id: uuid.UUID,
         asset_value: str,
-        ctx: object = None,
-    ) -> list[SignalCreate]:
+        ctx: ScanExecutionContext | None = None,
+    ) -> ModuleOutcome:
         signals: list[SignalCreate] = []
 
         if not settings.leakix_api_key:
@@ -62,7 +68,7 @@ class InfrastructureExposureService(BaseModuleService):
                 "infrastructure_exposure.skipped",
                 reason="LEAKIX_API_KEY not configured",
             )
-            return signals
+            return ModuleOutcome(signals=signals)
 
         api_key = settings.leakix_api_key.get_secret_value()
         provider = LeakIXProvider(api_key=api_key)
@@ -79,7 +85,7 @@ class InfrastructureExposureService(BaseModuleService):
         )
 
         if not result.success:
-            return signals
+            return ModuleOutcome(signals=signals)
 
         for finding in result.findings:
             if not isinstance(finding, dict):
@@ -99,7 +105,7 @@ class InfrastructureExposureService(BaseModuleService):
             domain=asset_value,
             signals_emitted=len(signals),
         )
-        return signals
+        return ModuleOutcome(signals=signals)
 
     # ------------------------------------------------------------------
     # Signal construction
@@ -107,21 +113,26 @@ class InfrastructureExposureService(BaseModuleService):
 
     def _build_signals(
         self,
-        finding: dict,
+        finding: ProviderFinding,
         user_id: uuid.UUID,
         asset_id: uuid.UUID,
         asset_value: str,
-    ) -> list[SignalCreate]:
+    ) -> ModuleOutcome:
         signals: list[SignalCreate] = []
 
-        host = finding.get("host", asset_value)
-        port = finding.get("port", "")
-        protocol = finding.get("protocol", "unknown")
-        summary_text = finding.get("summary", "")
-        time_str = finding.get("time", "")
-        no_auth = finding.get("no_auth", False)
-        dataset_rows = int(finding.get("dataset_rows") or 0)
-        tags = finding.get("tags") or []
+        # ProviderFinding is a TypedDict (= dict at runtime); LeakIX mapper
+        # stores provider-specific fields in `raw`.  Cast once to Any so that
+        # the rich nested access below remains readable without per-line ignores.
+        _f: dict[str, Any] = finding  # type: ignore[assignment]
+
+        host = _f.get("host", asset_value)
+        port = _f.get("port", "")
+        protocol = _f.get("protocol", "unknown")
+        summary_text = _f.get("summary", "")
+        time_str = _f.get("time", "")
+        no_auth = _f.get("no_auth", False)
+        dataset_rows = int(_f.get("dataset_rows") or 0)
+        tags = _f.get("tags") or []
 
         # Determine staleness
         is_stale = _is_stale(time_str)
@@ -159,21 +170,21 @@ class InfrastructureExposureService(BaseModuleService):
                     f"Tags: {', '.join(tags) if tags else 'none'}."
                 ),
                 evidence={
-                    "ip": finding.get("ip"),
+                    "ip": _f.get("ip"),
                     "host": host,
                     "port": port,
                     "protocol": protocol,
                     "summary": summary_text,
                     "time": time_str,
                     "dataset_rows": dataset_rows,
-                    "dataset_size_bytes": finding.get("dataset_size_bytes"),
-                    "dataset_collections": finding.get("dataset_collections"),
+                    "dataset_size_bytes": _f.get("dataset_size_bytes"),
+                    "dataset_collections": _f.get("dataset_collections"),
                     "no_auth": no_auth,
                     "tags": tags,
                     "is_stale": is_stale,
-                    "country": finding.get("country"),
-                    "as_name": finding.get("as_name"),
-                    "ssl_enabled": finding.get("ssl_enabled"),
+                    "country": _f.get("country"),
+                    "as_name": _f.get("as_name"),
+                    "ssl_enabled": _f.get("ssl_enabled"),
                 },
                 tags=["infrastructure_exposure", "leakix", protocol, "exposed_service"],
                 recommended_action=(
@@ -206,14 +217,14 @@ class InfrastructureExposureService(BaseModuleService):
                         "anyone on the internet can read or write to it."
                     ),
                     evidence={
-                        "ip": finding.get("ip"),
+                        "ip": _f.get("ip"),
                         "host": host,
                         "port": port,
                         "protocol": protocol,
                         "tags": tags,
-                        "country": finding.get("country"),
-                        "as_name": finding.get("as_name"),
-                        "ssl_enabled": finding.get("ssl_enabled"),
+                        "country": _f.get("country"),
+                        "as_name": _f.get("as_name"),
+                        "ssl_enabled": _f.get("ssl_enabled"),
                     },
                     tags=["infrastructure_exposure", "leakix", protocol, "no_auth"],
                     recommended_action=(
@@ -225,7 +236,7 @@ class InfrastructureExposureService(BaseModuleService):
                 )
             )
 
-        return signals
+        return ModuleOutcome(signals=signals)
 
 
 # ------------------------------------------------------------------

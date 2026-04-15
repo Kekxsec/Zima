@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from backend.app.core.config import settings
 from backend.app.core.enums import Confidence, EntityType, Severity
 from backend.app.core.logging import get_logger
+from backend.app.modules.base.outcome import ModuleOutcome
 from backend.app.modules.base.service import BaseModuleService
 from backend.app.providers.base.runner import run_provider
 from backend.app.providers.threat_intel.virustotal.client import VirusTotalProvider
@@ -34,7 +35,7 @@ class DomainReputationService(BaseModuleService):
         asset_id: uuid.UUID,
         asset_value: str,
         ctx: ScanExecutionContext | None = None,
-    ) -> list[SignalCreate]:
+    ) -> ModuleOutcome:
         signals: list[SignalCreate] = []
 
         vt_key = (
@@ -54,7 +55,11 @@ class DomainReputationService(BaseModuleService):
         )
 
         for finding in vt_result.findings:
-            malicious_count: int = int(finding.get("malicious_count", 0))
+            # ProviderFinding TypedDict only has title/description/tags/raw/evidence.
+            # VirusTotal mapper stores extra fields (malicious_count) at the top level
+            # of the finding dict — cast once to access them without per-line ignores.
+            _f: dict[str, Any] = finding  # type: ignore[assignment]
+            malicious_count: int = int(_f.get("malicious_count") or 0)
             severity = (
                 Severity.CRITICAL
                 if malicious_count >= _CRITICAL_THRESHOLD
@@ -79,10 +84,10 @@ class DomainReputationService(BaseModuleService):
                     confidence=confidence,
                     source=self.module_name,
                     provider="virustotal",
-                    summary=finding["title"],
-                    details=finding.get("description"),
+                    summary=_f["title"],
+                    details=_f.get("description"),
                     evidence={"raw_finding": finding},
-                    tags=finding.get("tags", []) + ["domain", "reputation"],
+                    tags=_f.get("tags", []) + ["domain", "reputation"],
                     recommended_action=(
                         "Investigate this domain for malware hosting, phishing, or "
                         "C2 activity. Consider blocking at DNS or firewall level and "
@@ -98,4 +103,4 @@ class DomainReputationService(BaseModuleService):
             domain=asset_value,
             signals_emitted=len(signals),
         )
-        return signals
+        return ModuleOutcome(signals=signals)

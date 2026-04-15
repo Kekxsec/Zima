@@ -16,6 +16,7 @@ and increments attempt_count; after MAX_ATTEMPTS the row is marked failed.
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import JSON, DateTime, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
@@ -42,7 +43,7 @@ class NotificationOutbox(Base, TimestampMixin):
     monitored_email: Mapped[str] = mapped_column(String(320), nullable=False)
     template: Mapped[str] = mapped_column(String(64), nullable=False)
     # JSON payload passed directly to the email template renderer.
-    payload: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="pending", index=True
     )

@@ -1,13 +1,19 @@
 # backend/app/modules/device/software_inventory/service.py
+from __future__ import annotations
+
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from backend.app.core.enums import Confidence, EntityType, Severity
 from backend.app.core.logging import get_logger
+from backend.app.modules.base.outcome import ModuleOutcome
 from backend.app.modules.base.service import BaseModuleService
 from backend.app.providers.base.exceptions import ProviderError
 from backend.app.providers.tools.syft.client import SyftProvider
 from backend.app.signals.schemas import SignalCreate
+
+if TYPE_CHECKING:
+    from backend.app.jobs.context import ScanExecutionContext
 
 logger = get_logger(__name__)
 
@@ -46,8 +52,8 @@ class SoftwareInventoryService(BaseModuleService):
         user_id: uuid.UUID,
         asset_id: uuid.UUID,
         asset_value: str,
-        ctx: object = None,
-    ) -> list[SignalCreate]:
+        ctx: ScanExecutionContext | None = None,
+    ) -> ModuleOutcome:
         """Run Syft against the scan target and emit a coverage signal.
 
         asset_value: Syft scan target — e.g. "/" for the local filesystem,
@@ -66,7 +72,7 @@ class SoftwareInventoryService(BaseModuleService):
                 error=str(e),
                 target=target,
             )
-            return signals
+            return ModuleOutcome(signals=signals)
 
         packages = _extract_packages(syft_data)
         pkg_count = len(packages)
@@ -149,4 +155,4 @@ class SoftwareInventoryService(BaseModuleService):
             package_count=pkg_count,
             signals_emitted=len(signals),
         )
-        return signals
+        return ModuleOutcome(signals=signals)

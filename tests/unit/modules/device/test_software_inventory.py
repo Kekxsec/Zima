@@ -91,14 +91,14 @@ async def test_run_emits_completed_signal_with_packages() -> None:
         "backend.app.modules.device.software_inventory.service.SyftProvider.scan",
         return_value=SAMPLE_SYFT_OUTPUT,
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=USER_ID,
             asset_id=ASSET_ID,
             asset_value="/",
         )
 
-    assert len(signals) == 1
-    s = signals[0]
+    assert len(outcome.signals) == 1
+    s = outcome.signals[0]
     assert s.signal_type == "software_inventory_scan_completed"
     assert s.severity == Severity.INFO
     assert s.confidence == Confidence.HIGH
@@ -116,14 +116,14 @@ async def test_run_emits_empty_signal_when_no_packages_found() -> None:
         "backend.app.modules.device.software_inventory.service.SyftProvider.scan",
         return_value=EMPTY_SYFT_OUTPUT,
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=USER_ID,
             asset_id=ASSET_ID,
             asset_value="/tmp/empty",  # noqa: S108
         )
 
-    assert len(signals) == 1
-    s = signals[0]
+    assert len(outcome.signals) == 1
+    s = outcome.signals[0]
     assert s.signal_type == "software_inventory_scan_empty"
     assert s.severity == Severity.INFO
     assert s.confidence == Confidence.MEDIUM
@@ -138,13 +138,13 @@ async def test_run_graceful_on_syft_failure() -> None:
         "backend.app.modules.device.software_inventory.service.SyftProvider.scan",
         side_effect=ProviderError("syft binary not found"),
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=USER_ID,
             asset_id=ASSET_ID,
             asset_value="/",
         )
 
-    assert signals == []
+    assert outcome.signals == []
 
 
 @pytest.mark.asyncio

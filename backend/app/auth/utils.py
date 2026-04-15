@@ -28,10 +28,12 @@ def create_access_token(subject: str, tier: str) -> str:
         "jti": str(uuid.uuid4()),
         "type": "access",
     }
-    return jwt.encode(
-        payload,
-        settings.jwt_secret_key.get_secret_value(),
-        algorithm=settings.jwt_algorithm,
+    return str(
+        jwt.encode(
+            payload,
+            settings.jwt_secret_key.get_secret_value(),
+            algorithm=settings.jwt_algorithm,
+        )
     )
 
 
@@ -43,14 +45,17 @@ def _coerce_timestamp(value: object) -> datetime | None:
     return None
 
 
-def create_companion_token(user_id: str, session_id: str, expire_days: int = 7) -> str:
+def create_companion_token(
+    user_id: str, session_id: str, jti: str, expire_days: int = 7
+) -> str:
     """
     Creates a signed JWT companion token for the Rust binary.
     Uses Bearer header only — never a cookie.
+    jti must be the same value stored in CompanionSession.companion_jti so that
+    re-registration immediately invalidates any prior token.
     """
     expire = datetime.now(UTC) + timedelta(days=expire_days)
     issued_at = datetime.now(UTC)
-    jti = str(uuid.uuid4())
     payload = {
         "sub": user_id,
         "session_id": session_id,
@@ -59,10 +64,12 @@ def create_companion_token(user_id: str, session_id: str, expire_days: int = 7) 
         "iat": issued_at,
         "jti": jti,
     }
-    return jwt.encode(
-        payload,
-        settings.jwt_secret_key.get_secret_value(),
-        algorithm=settings.jwt_algorithm,
+    return str(
+        jwt.encode(
+            payload,
+            settings.jwt_secret_key.get_secret_value(),
+            algorithm=settings.jwt_algorithm,
+        )
     )
 
 

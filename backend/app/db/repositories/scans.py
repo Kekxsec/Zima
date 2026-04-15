@@ -97,7 +97,7 @@ class ScanRepository:
                 error_detail="Scan timed out — marked failed by stale scan detector",
             )
         )
-        return result.rowcount > 0
+        return result.rowcount > 0  # type: ignore[attr-defined, no-any-return]
 
     async def mark_stale_scans_failed(self, stale_after_minutes: int = 30) -> int:
         """
@@ -120,7 +120,7 @@ class ScanRepository:
                 error_detail="Scan timed out — marked failed by stale scan detector",
             )
         )
-        count: int = result.rowcount
+        count: int = result.rowcount  # type: ignore[attr-defined]
         return count
 
     async def delete_all_for_user(self, user_id: uuid.UUID) -> None:

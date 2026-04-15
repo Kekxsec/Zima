@@ -5,10 +5,12 @@ classification.
 
 Design rules:
 - No HTTP calls.
-- No direct DB access — takes parsed emails, returns aggregated NewsletterDraft objects.
+- No direct DB access — takes parsed emails, returns aggregated NewsletterDraft
+  objects plus the filtered non-newsletter email stream.
 - Called by mbox_processor BEFORE AccountDiscoveryService.
-- Uses explicit signals (List-ID, List-Unsubscribe, ESP domains, subject patterns)
-  to produce a review queue, NOT automated actions.
+- Uses explicit signals (List-ID, List-Unsubscribe, bulk headers, ESP domains,
+  sender patterns, subject patterns) to produce a review queue, NOT automated
+  actions.
 """
 
 from __future__ import annotations
@@ -16,10 +18,17 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel
 
 from backend.app.providers.tools.mbox_parser.models import ParsedEmail
+
+_HEADER_SCORE = 30
+_SENDER_SCORE = 20
+_SUBJECT_SCORE = 15
+_UNSUBSCRIBE_SCORE = 25
+_NEWSLETTER_THRESHOLD = 70
 
 # ---------------------------------------------------------------------------
 # Known ESP (Email Service Provider) sending domains — strong newsletter signal
@@ -84,6 +93,13 @@ _NEWSLETTER_SUBJECT_RE = re.compile(
     re.IGNORECASE,
 )
 
+_SENDER_PATTERN_RE = re.compile(
+    r"^(newsletter|news|updates|digest|hello|noreply|no-reply|mailer|list)\b",
+    re.IGNORECASE,
+)
+
+_BULK_PRECEDENCE_RE = re.compile(r"\b(bulk|list|junk)\b", re.IGNORECASE)
+
 
 def _is_esp_domain(domain: str | None) -> bool:
     if not domain:
@@ -97,26 +113,45 @@ def _is_esp_domain(domain: str | None) -> bool:
     return False
 
 
-def _detect_confidence(msg: ParsedEmail) -> str | None:
+def _sender_matches_newsletter_pattern(msg: ParsedEmail) -> bool:
+    if msg.from_address and _SENDER_PATTERN_RE.search(msg.from_address):
+        return True
+    if msg.from_name and _SENDER_PATTERN_RE.search(msg.from_name):
+        return True
+    return _is_esp_domain(msg.sender_domain)
+
+
+def _header_indicators(msg: ParsedEmail) -> bool:
+    if msg.list_id:
+        return True
+    if msg.precedence and _BULK_PRECEDENCE_RE.search(msg.precedence):
+        return True
+    return False
+
+
+def _subject_indicator(msg: ParsedEmail) -> bool:
+    return bool(msg.subject and _NEWSLETTER_SUBJECT_RE.search(msg.subject))
+
+
+def score_newsletter_email(msg: ParsedEmail) -> int:
     """
-    Returns 'high', 'medium', or None (not a newsletter).
+    Return a conservative 0-100 newsletter score for one parsed email.
 
-    High: has List-ID or List-Unsubscribe header (RFC 2919 / RFC 2369).
-    Medium: sender domain is a known ESP, or subject matches newsletter pattern.
+    Threshold guidance:
+    - >= 70: treat as newsletter noise and filter from account discovery
+    - < 70: keep in the account-discovery stream to avoid destructive false
+      positives
     """
-    has_list_id = bool(msg.list_id)
-    has_list_unsub = bool(msg.list_unsubscribe)
-
-    if has_list_id or has_list_unsub:
-        return "high"
-
-    if _is_esp_domain(msg.sender_domain):
-        return "medium"
-
-    if msg.subject and _NEWSLETTER_SUBJECT_RE.search(msg.subject):
-        return "medium"
-
-    return None
+    score = 0
+    if _header_indicators(msg):
+        score += _HEADER_SCORE
+    if _sender_matches_newsletter_pattern(msg):
+        score += _SENDER_SCORE
+    if _subject_indicator(msg):
+        score += _SUBJECT_SCORE
+    if msg.list_unsubscribe:
+        score += _UNSUBSCRIBE_SCORE
+    return min(score, 100)
 
 
 class NewsletterDraft(BaseModel):
@@ -133,6 +168,7 @@ class NewsletterDraft(BaseModel):
     unsubscribe_url: str | None
     list_id: str | None
     confidence: str  # "high" | "medium"
+    confidence_score: int
     is_phishing: bool = False
 
 
@@ -143,14 +179,30 @@ class NewsletterDetectionService:
     Returns one NewsletterDraft per sender domain.
     """
 
+    def partition(
+        self, emails: list[ParsedEmail]
+    ) -> tuple[list[NewsletterDraft], list[ParsedEmail]]:
+        """
+        Return detected newsletters and the remaining emails safe for
+        account-discovery classification.
+        """
+        newsletter_emails: list[ParsedEmail] = []
+        account_emails: list[ParsedEmail] = []
+
+        for msg in emails:
+            if score_newsletter_email(msg) >= _NEWSLETTER_THRESHOLD:
+                newsletter_emails.append(msg)
+            else:
+                account_emails.append(msg)
+
+        return self.detect(newsletter_emails), account_emails
+
     def detect(self, emails: list[ParsedEmail]) -> list[NewsletterDraft]:
         """
         Group newsletter emails by sender_domain and aggregate counts/metadata.
-
-        Returns only senders where confidence is 'high' or 'medium'.
         """
         # domain → aggregated state
-        buckets: dict[str, dict] = defaultdict(
+        buckets: dict[str, dict[str, Any]] = defaultdict(
             lambda: {
                 "sender_name": None,
                 "message_count": 0,
@@ -159,12 +211,13 @@ class NewsletterDetectionService:
                 "unsubscribe_url": None,
                 "list_id": None,
                 "confidence": "medium",
+                "confidence_score": 0,
             }
         )
 
         for msg in emails:
-            confidence = _detect_confidence(msg)
-            if confidence is None:
+            confidence_score = score_newsletter_email(msg)
+            if confidence_score < _NEWSLETTER_THRESHOLD:
                 continue
             domain = msg.sender_domain
             if not domain:
@@ -173,8 +226,9 @@ class NewsletterDetectionService:
             b = buckets[domain]
             b["message_count"] += 1
 
-            # Escalate confidence: medium → high, never downgrade
-            if confidence == "high":
+            # Escalate confidence: medium → high, never downgrade.
+            b["confidence_score"] = max(int(b["confidence_score"]), confidence_score)
+            if confidence_score >= 85:
                 b["confidence"] = "high"
 
             # Update sender_name — prefer the first non-empty one
@@ -206,6 +260,7 @@ class NewsletterDetectionService:
                 unsubscribe_url=state["unsubscribe_url"],
                 list_id=state["list_id"],
                 confidence=state["confidence"],
+                confidence_score=int(state["confidence_score"]),
             )
             for domain, state in buckets.items()
         ]

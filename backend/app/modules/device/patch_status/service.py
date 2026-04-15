@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import platform
 import uuid
+from typing import TYPE_CHECKING
 
 from backend.app.core.enums import Confidence, EntityType, Severity
 from backend.app.core.logging import get_logger
+from backend.app.modules.base.outcome import ModuleOutcome
 from backend.app.modules.base.service import BaseModuleService
 from backend.app.providers.base.exceptions import ProviderError
 from backend.app.providers.tools.linux_native.client import LinuxNativeProvider
@@ -13,6 +15,9 @@ from backend.app.providers.tools.macos_native.client import MacOsNativeProvider
 from backend.app.providers.tools.osquery.client import OsqueryProvider
 from backend.app.providers.tools.windows_native.client import WindowsNativeProvider
 from backend.app.signals.schemas import SignalCreate
+
+if TYPE_CHECKING:
+    from backend.app.jobs.context import ScanExecutionContext
 
 logger = get_logger(__name__)
 
@@ -34,8 +39,8 @@ class PatchStatusService(BaseModuleService):
         user_id: uuid.UUID,
         asset_id: uuid.UUID,
         asset_value: str,
-        ctx: object = None,
-    ) -> list[SignalCreate]:
+        ctx: ScanExecutionContext | None = None,
+    ) -> ModuleOutcome:
         signals: list[SignalCreate] = []
         system = platform.system()
 
@@ -238,4 +243,4 @@ class PatchStatusService(BaseModuleService):
             asset_id=str(asset_id),
             signals_emitted=len(signals),
         )
-        return signals
+        return ModuleOutcome(signals=signals)

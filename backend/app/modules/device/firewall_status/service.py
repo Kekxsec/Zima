@@ -2,14 +2,19 @@
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING, Any
 
 from backend.app.core.enums import Confidence, EntityType, Severity
 from backend.app.core.logging import get_logger
+from backend.app.modules.base.outcome import ModuleOutcome
 from backend.app.modules.base.service import BaseModuleService
 from backend.app.providers.base.exceptions import ProviderError
 from backend.app.providers.tools.lynis.client import LynisProvider
 from backend.app.providers.tools.osquery.client import OsqueryProvider
 from backend.app.signals.schemas import SignalCreate
+
+if TYPE_CHECKING:
+    from backend.app.jobs.context import ScanExecutionContext
 
 logger = get_logger(__name__)
 
@@ -41,13 +46,13 @@ class FirewallStatusService(BaseModuleService):
         user_id: uuid.UUID,
         asset_id: uuid.UUID,
         asset_value: str,
-        ctx: object = None,
-    ) -> list[SignalCreate]:
+        ctx: ScanExecutionContext | None = None,
+    ) -> ModuleOutcome:
         signals: list[SignalCreate] = []
 
         # --- osquery: iptables rules ---
         osq = OsqueryProvider()
-        iptables_rows: list[dict] = []
+        iptables_rows: list[dict[str, Any]] | None = None
         try:
             iptables_rows = await osq.query_named("iptables")
         except ProviderError as e:
@@ -89,7 +94,7 @@ class FirewallStatusService(BaseModuleService):
                     source_ref="osquery:iptables",
                 )
             )
-        elif iptables_rows is not None and len(iptables_rows) == 0:
+        elif iptables_rows is not None:
             # osquery ran successfully but returned no rules
             signals.append(
                 SignalCreate(
@@ -217,4 +222,4 @@ class FirewallStatusService(BaseModuleService):
             asset_id=str(asset_id),
             signals_emitted=len(signals),
         )
-        return signals
+        return ModuleOutcome(signals=signals)

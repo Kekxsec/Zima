@@ -228,11 +228,12 @@ export interface BillingStatusResponse {
 }
 
 export interface CheckoutSessionResponse {
-  url: string
+  checkout_url: string
+  tier?: string
 }
 
 export interface PortalSessionResponse {
-  url: string
+  portal_url: string
 }
 
 // ─── Email Accounts / mbox ───────────────────────────────────────────────────

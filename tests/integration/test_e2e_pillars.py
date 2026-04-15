@@ -76,32 +76,33 @@ async def test_identity_pillar_breach_monitor_emits_signals() -> None:
     hibp_result = _ok("haveibeenpwned", [_HIBP_FINDING])
     dh_result = _ok("dehashed", [_DEHASHED_FINDING])
     bd_result = _skipped("breachdirectory")
+    lc_result = _skipped("leakcheck")
 
     with patch(
         "backend.app.modules.identity.breach_monitor.service.run_provider",
-        side_effect=[hibp_result, dh_result, bd_result],
+        side_effect=[hibp_result, dh_result, bd_result, lc_result],
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=USER_ID,
             asset_id=ASSET_ID,
             asset_value="victim@example.com",
         )
 
-    assert len(signals) == 2
+    assert len(outcome.signals) == 2
 
-    hibp_sig = next(s for s in signals if s.provider == "haveibeenpwned")
+    hibp_sig = next(s for s in outcome.signals if s.provider == "haveibeenpwned")
     assert hibp_sig.signal_type == "email_breached"
     assert hibp_sig.entity_type == EntityType.EMAIL
     assert hibp_sig.severity == Severity.HIGH
 
-    dh_sig = next(s for s in signals if s.provider == "dehashed")
+    dh_sig = next(s for s in outcome.signals if s.provider == "dehashed")
     # plaintext password in entry → CRITICAL
     assert dh_sig.severity == Severity.CRITICAL
 
 
 @pytest.mark.asyncio
 async def test_identity_pillar_breach_monitor_all_skipped_returns_empty() -> None:
-    """All providers skipped (no credentials) → no signals emitted."""
+    """All providers skipped, including LeakCheck, → no signals emitted."""
     service = BreachMonitorService()
 
     with patch(
@@ -110,15 +111,16 @@ async def test_identity_pillar_breach_monitor_all_skipped_returns_empty() -> Non
             _skipped("haveibeenpwned"),
             _skipped("dehashed"),
             _skipped("breachdirectory"),
+            _skipped("leakcheck"),
         ],
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=USER_ID,
             asset_id=ASSET_ID,
             asset_value="nobody@example.com",
         )
 
-    assert signals == []
+    assert outcome.signals == []
 
 
 # ---------------------------------------------------------------------------
@@ -152,14 +154,14 @@ async def test_identity_pillar_credential_exposure_emits_signal() -> None:
             _skipped("breachdirectory"),
         ],
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=USER_ID,
             asset_id=ASSET_ID,
             asset_value="nobody@example.com",
         )
 
-    assert len(signals) >= 1
-    sig = signals[0]
+    assert len(outcome.signals) >= 1
+    sig = outcome.signals[0]
     assert sig.signal_type == "password_exposed"
     assert sig.entity_type == EntityType.EMAIL
     assert sig.provider == "leakcheck"
@@ -195,15 +197,15 @@ async def test_identity_pillar_stealer_log_exposure_emits_critical_signal() -> N
         "backend.app.modules.identity.stealer_log_exposure.service.run_provider",
         return_value=_ok("hudson_rock", [_STEALER_FINDING]),
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=USER_ID,
             asset_id=ASSET_ID,
             asset_value="victim@example.com",
         )
 
-    assert len(signals) >= 1
-    assert signals[0].severity == Severity.CRITICAL
-    assert signals[0].signal_type == "stealer_log_hit"
+    assert len(outcome.signals) >= 1
+    assert outcome.signals[0].severity == Severity.CRITICAL
+    assert outcome.signals[0].signal_type == "stealer_log_hit"
 
 
 # ---------------------------------------------------------------------------
@@ -213,15 +215,13 @@ async def test_identity_pillar_stealer_log_exposure_emits_critical_signal() -> N
 _LYNIS_OUTPUT = {
     "hardening_index": 45,
     "warnings": [
-        {"test_id": "KRNL-5820", "description": "Kernel update available"},
-        {"test_id": "AUTH-9328", "description": "Root has no password"},
-        {"test_id": "FIRE-4512", "description": "Firewall not active"},
-        {"test_id": "MAIL-8804", "description": "MTA scan results"},
-        {"test_id": "INSE-8016", "description": "Insecure service active"},
+        "KRNL-5820: Kernel update available",
+        "AUTH-9328: Root has no password",
+        "FIRE-4512: Firewall not active",
+        "MAIL-8804: MTA scan results",
+        "INSE-8016: Insecure service active",
     ],
     "suggestions": [],
-    "tests_done": 120,
-    "tests_skipped": 5,
 }
 
 _OSQUERY_OS_ROW = {"name": "Ubuntu", "version": "22.04", "platform": "ubuntu"}
@@ -252,14 +252,14 @@ async def test_device_pillar_os_security_emits_signal_on_weak_hardening() -> Non
             return_value=_LYNIS_OUTPUT,
         ),
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=USER_ID,
             asset_id=ASSET_ID,
             asset_value="device-001",
         )
 
-    assert len(signals) >= 1
-    lynis_sigs = [s for s in signals if s.provider == "lynis"]
+    assert len(outcome.signals) >= 1
+    lynis_sigs = [s for s in outcome.signals if s.provider == "lynis"]
     assert len(lynis_sigs) >= 1
     assert lynis_sigs[0].severity == Severity.HIGH
 
@@ -288,14 +288,14 @@ async def test_device_pillar_os_security_graceful_on_lynis_failure() -> None:
             side_effect=ProviderError("lynis unavailable"),
         ),
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=USER_ID,
             asset_id=ASSET_ID,
             asset_value="device-001",
         )
 
     # May emit osquery-derived signals even if lynis fails — just no crash
-    assert isinstance(signals, list)
+    assert isinstance(outcome.signals, list)
 
 
 # ---------------------------------------------------------------------------
@@ -332,14 +332,14 @@ async def test_browser_pillar_extension_risk_crx_path_emits_signal() -> None:
             return_value={"id": "cfhdojbkjhnklbpkdaibdccddilifddb", "name": "SomeExt"},
         ),
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=USER_ID,
             asset_id=ASSET_ID,
             asset_value="cfhdojbkjhnklbpkdaibdccddilifddb:2.0.0:Chrome",
         )
 
-    assert len(signals) == 1
-    sig = signals[0]
+    assert len(outcome.signals) == 1
+    sig = outcome.signals[0]
     assert sig.signal_type == "browser_extension_risk"
     assert sig.severity == Severity.HIGH
     assert sig.provider == "crxcavator"
@@ -368,7 +368,7 @@ async def test_browser_pillar_extension_risk_firefox_uses_amo() -> None:
             new_callable=AsyncMock,
         ) as mock_cws,
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=USER_ID,
             asset_id=ASSET_ID,
             asset_value="{uBlock0@raymondhill.net}:1.50.0:Firefox",
@@ -376,8 +376,8 @@ async def test_browser_pillar_extension_risk_firefox_uses_amo() -> None:
 
     mock_amo.assert_called_once()
     mock_cws.assert_not_called()
-    assert len(signals) == 1
-    assert signals[0].evidence["platform"] == "Firefox"
+    assert len(outcome.signals) == 1
+    assert outcome.signals[0].evidence["platform"] == "Firefox"
 
 
 @pytest.mark.asyncio
@@ -390,13 +390,13 @@ async def test_browser_pillar_extension_risk_device_path_no_extensions() -> None
         new_callable=AsyncMock,
         return_value=[],
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=USER_ID,
             asset_id=ASSET_ID,
             asset_value="macbook-pro-2023",
         )
 
-    assert signals == []
+    assert outcome.signals == []
 
 
 @pytest.mark.asyncio
@@ -434,13 +434,13 @@ async def test_browser_pillar_extension_risk_device_path_malicious_hit() -> None
             return_value=malicious_hit,
         ),
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=USER_ID,
             asset_id=ASSET_ID,
             asset_value="macbook-pro-2023",
         )
 
-    assert len(signals) == 1
-    assert signals[0].signal_type == "malicious_extension_found"
-    assert signals[0].severity == Severity.CRITICAL
-    assert signals[0].entity_type == EntityType.DEVICE
+    assert len(outcome.signals) == 1
+    assert outcome.signals[0].signal_type == "malicious_extension_found"
+    assert outcome.signals[0].severity == Severity.CRITICAL
+    assert outcome.signals[0].entity_type == EntityType.DEVICE

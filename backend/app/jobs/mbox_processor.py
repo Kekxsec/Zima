@@ -20,6 +20,7 @@ Lifecycle:
 """
 
 import uuid
+from pathlib import Path
 
 from backend.app.core.config import settings
 from backend.app.core.enums import Confidence, EntityType, Severity
@@ -79,7 +80,7 @@ async def process_mbox_upload(
     upload_id: uuid.UUID,
     asset_id: uuid.UUID,
     recipient_email: str,
-    mbox_bytes: bytes,
+    mbox_path: str,
 ) -> None:
     """
     Background task entry-point.
@@ -90,8 +91,8 @@ async def process_mbox_upload(
     upload_id:      The MboxUpload row that tracks this job.
     asset_id:       The verified Asset UUID for *recipient_email*.
     recipient_email: The email address whose inbox is being analysed.
-    mbox_bytes:     Raw mbox file content held in memory for the duration of
-                    this call.
+    mbox_path:      Temporary on-disk mbox path streamed from the upload
+                    endpoint and deleted when processing finishes.
     """
     async with AsyncSessionLocal() as session:
         upload_repo = MboxUploadRepository(session)
@@ -104,7 +105,7 @@ async def process_mbox_upload(
             await session.commit()
 
             # --- Parse ---
-            parsed_emails = _parser.parse(mbox_bytes)
+            parsed_emails = _parser.parse_file(mbox_path)
             logger.info(
                 "mbox_processor.parsed",
                 upload_id=str(upload_id),
@@ -112,7 +113,9 @@ async def process_mbox_upload(
             )
 
             # --- Newsletter pre-pass (with VirusTotal URL scanning) ---
-            newsletter_drafts = _newsletter_detector.detect(parsed_emails)
+            newsletter_drafts, account_emails = _newsletter_detector.partition(
+                parsed_emails
+            )
 
             vt_key = (
                 settings.virustotal_api_key.get_secret_value()
@@ -155,11 +158,11 @@ async def process_mbox_upload(
                         confidence=Confidence.HIGH,
                         source="mbox_processor",
                         provider="virustotal",
-                        title=(
+                        summary=(
                             "Phishing unsubscribe link detected from "
                             f"{draft.sender_domain}"
                         ),
-                        description=(
+                        details=(
                             f"The unsubscribe link in emails from "
                             f"{draft.sender_domain} was flagged as malicious "
                             f"by VirusTotal. Do NOT click the unsubscribe link. "
@@ -180,11 +183,15 @@ async def process_mbox_upload(
                 upload_id=str(upload_id),
                 newsletters_upserted=newsletters_upserted,
                 phishing_detected=phishing_detected,
+                account_emails_remaining=len(account_emails),
             )
 
             # --- Classify ---
             discovery_svc = AccountDiscoveryService(session)
-            drafts = await discovery_svc.classify_emails(parsed_emails, recipient_email)
+            drafts = await discovery_svc.classify_emails(
+                account_emails,
+                recipient_email,
+            )
             logger.info(
                 "mbox_processor.classified",
                 upload_id=str(upload_id),
@@ -195,20 +202,20 @@ async def process_mbox_upload(
             accounts_discovered = 0
             signals_created = 0
 
-            for draft in drafts:
+            for acct_draft in drafts:
                 account = await account_repo.upsert(
                     user_id=user_id,
                     upload_id=upload_id,
-                    service_name=draft.service_name,
-                    display_name=draft.display_name,
-                    email_used=draft.email_used,
-                    source_type=draft.source_type,
-                    sender_domain=draft.sender_domain,
-                    login_url=draft.login_url,
-                    password_reset_url=draft.password_reset_url,
-                    first_seen_at=draft.first_seen_at,
-                    last_seen_at=draft.last_seen_at,
-                    email_count=draft.email_count,
+                    service_name=acct_draft.service_name,
+                    display_name=acct_draft.display_name,
+                    email_used=acct_draft.email_used,
+                    source_type=acct_draft.source_type,
+                    sender_domain=acct_draft.sender_domain,
+                    login_url=acct_draft.login_url,
+                    password_reset_url=acct_draft.password_reset_url,
+                    first_seen_at=acct_draft.first_seen_at,
+                    last_seen_at=acct_draft.last_seen_at,
+                    email_count=acct_draft.email_count,
                 )
                 accounts_discovered += 1
 
@@ -255,3 +262,5 @@ async def process_mbox_upload(
                 error=str(exc),
             )
             raise
+        finally:
+            Path(mbox_path).unlink(missing_ok=True)

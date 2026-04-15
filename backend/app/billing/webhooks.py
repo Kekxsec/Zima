@@ -1,5 +1,6 @@
 # backend/app/billing/webhooks.py
 import ipaddress
+from typing import Any
 
 import stripe
 from fastapi import APIRouter, HTTPException, Request
@@ -77,7 +78,7 @@ async def stripe_webhook(request: Request) -> dict[str, bool]:
     sig_header = request.headers.get("stripe-signature", "")
 
     try:
-        event = stripe.Webhook.construct_event(
+        event = stripe.Webhook.construct_event(  # type: ignore[no-untyped-call]
             payload,
             sig_header,
             settings.stripe_webhook_secret.get_secret_value(),
@@ -101,7 +102,7 @@ async def stripe_webhook(request: Request) -> dict[str, bool]:
 
 
 async def _handle_subscription_updated(
-    subscription: dict, price_to_tier: dict[str, str]
+    subscription: dict[str, Any], price_to_tier: dict[str, str]
 ) -> None:
     price_id = subscription["items"]["data"][0]["price"]["id"]
     new_tier = price_to_tier.get(price_id, "core")
@@ -121,7 +122,7 @@ async def _handle_subscription_updated(
     logger.info("billing.tier_updated", tier=new_tier, customer=stripe_customer_id)
 
 
-async def _handle_subscription_deleted(subscription: dict) -> None:
+async def _handle_subscription_deleted(subscription: dict[str, Any]) -> None:
     """Subscription cancelled — downgrade to core (free)."""
     stripe_customer_id = subscription["customer"]
 
@@ -138,7 +139,7 @@ async def _handle_subscription_deleted(subscription: dict) -> None:
     logger.info("billing.downgraded_to_core", customer=stripe_customer_id)
 
 
-async def _handle_payment_failed(invoice: dict) -> None:
+async def _handle_payment_failed(invoice: dict[str, Any]) -> None:
     """Payment failed — log for monitoring. Stripe handles dunning automatically."""
     logger.warning(
         "billing.payment_failed",

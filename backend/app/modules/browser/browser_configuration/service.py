@@ -1,8 +1,12 @@
 # backend/app/modules/browser/browser_configuration/service.py
+from __future__ import annotations
+
 import uuid
+from typing import TYPE_CHECKING
 
 from backend.app.core.enums import Confidence, EntityType
 from backend.app.core.logging import get_logger
+from backend.app.modules.base.outcome import ModuleOutcome
 from backend.app.modules.base.service import BaseModuleService
 from backend.app.modules.browser.browser_configuration.rules import (
     CHROMIUM_SIGNAL_MAP,
@@ -20,6 +24,9 @@ from backend.app.providers.tools.firefox_enterprise_policies.client import (
     FirefoxEnterprisePoliciesProvider,
 )
 from backend.app.signals.schemas import SignalCreate
+
+if TYPE_CHECKING:
+    from backend.app.jobs.context import ScanExecutionContext
 
 logger = get_logger(__name__)
 
@@ -71,8 +78,8 @@ class BrowserConfigurationService(BaseModuleService):
         user_id: uuid.UUID,
         asset_id: uuid.UUID,
         asset_value: str,
-        ctx: object = None,
-    ) -> list[SignalCreate]:
+        ctx: ScanExecutionContext | None = None,
+    ) -> ModuleOutcome:
         """Read enterprise browser policies and emit misconfiguration signals.
 
         asset_value: ignored (DEVICE assets don't have a meaningful string value
@@ -232,4 +239,4 @@ class BrowserConfigurationService(BaseModuleService):
             user_id=str(user_id),
             signals_emitted=len(signals),
         )
-        return signals
+        return ModuleOutcome(signals=signals)

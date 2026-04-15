@@ -1,5 +1,6 @@
 # backend/app/email/service.py
 import asyncio
+from typing import Any
 
 from backend.app.core.config import settings
 from backend.app.core.logging import get_logger
@@ -11,7 +12,7 @@ _MAX_SEND_ATTEMPTS: int = 3
 
 async def _send_with_retry(
     send_fn: object,
-    params: dict,
+    params: dict[str, Any],
     log_tag: str,
     *,
     max_attempts: int = _MAX_SEND_ATTEMPTS,

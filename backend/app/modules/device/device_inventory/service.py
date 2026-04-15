@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING, Any
 
 from backend.app.core.enums import Confidence, EntityType, Severity
 from backend.app.core.logging import get_logger
+from backend.app.modules.base.outcome import ModuleOutcome
 from backend.app.modules.base.service import BaseModuleService
 from backend.app.providers.base.exceptions import ProviderError
 from backend.app.providers.tools.osquery.client import OsqueryProvider
@@ -12,6 +14,9 @@ from backend.app.providers.tools.oui_master_database.client import (
     OuiMasterDatabaseProvider,
 )
 from backend.app.signals.schemas import SignalCreate
+
+if TYPE_CHECKING:
+    from backend.app.jobs.context import ScanExecutionContext
 
 logger = get_logger(__name__)
 
@@ -33,13 +38,13 @@ class DeviceInventoryService(BaseModuleService):
         user_id: uuid.UUID,
         asset_id: uuid.UUID,
         asset_value: str,
-        ctx: object = None,
-    ) -> list[SignalCreate]:
+        ctx: ScanExecutionContext | None = None,
+    ) -> ModuleOutcome:
         signals: list[SignalCreate] = []
 
         # --- osquery: network interface details ---
         osq = OsqueryProvider()
-        interfaces: list[dict] = []
+        interfaces: list[dict[str, Any]] = []
         try:
             interfaces = await osq.query_named("interface_details")
         except ProviderError as e:
@@ -51,7 +56,7 @@ class DeviceInventoryService(BaseModuleService):
                 user_id=str(user_id),
                 asset_id=str(asset_id),
             )
-            return signals
+            return ModuleOutcome(signals=signals)
 
         # --- OUI vendor enrichment ---
         oui = OuiMasterDatabaseProvider()
@@ -127,4 +132,4 @@ class DeviceInventoryService(BaseModuleService):
             interfaces_found=len(interfaces),
             signals_emitted=len(signals),
         )
-        return signals
+        return ModuleOutcome(signals=signals)

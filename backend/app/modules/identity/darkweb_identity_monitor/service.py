@@ -4,14 +4,19 @@
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING, Any
 
 from backend.app.core.config import settings
 from backend.app.core.enums import Confidence, EntityType, Severity
 from backend.app.core.logging import get_logger
+from backend.app.modules.base.outcome import ModuleOutcome
 from backend.app.modules.base.service import BaseModuleService
 from backend.app.providers.base.runner import run_provider
 from backend.app.providers.threat_intel.intelx.client import IntelXProvider
 from backend.app.signals.schemas import SignalCreate
+
+if TYPE_CHECKING:
+    from backend.app.jobs.context import ScanExecutionContext
 
 logger = get_logger(__name__)
 
@@ -34,8 +39,8 @@ class DarkwebIdentityMonitorService(BaseModuleService):
         user_id: uuid.UUID,
         asset_id: uuid.UUID,
         asset_value: str,
-        ctx: object = None,
-    ) -> list[SignalCreate]:
+        ctx: ScanExecutionContext | None = None,
+    ) -> ModuleOutcome:
         signals: list[SignalCreate] = []
 
         if not settings.intelx_api_key:
@@ -43,7 +48,7 @@ class DarkwebIdentityMonitorService(BaseModuleService):
                 "darkweb_identity_monitor.skipped",
                 reason="INTELX_API_KEY not configured",
             )
-            return signals
+            return ModuleOutcome(signals=signals)
 
         api_key = settings.intelx_api_key.get_secret_value()
         provider = IntelXProvider(api_key=api_key)
@@ -60,10 +65,10 @@ class DarkwebIdentityMonitorService(BaseModuleService):
         )
 
         if not result.success:
-            return signals
+            return ModuleOutcome(signals=signals)
 
         for finding in result.findings:
-            raw: dict = (
+            raw: dict[str, Any] = (
                 finding.get("raw", {}) if isinstance(finding.get("raw"), dict) else {}
             )
 
@@ -113,4 +118,4 @@ class DarkwebIdentityMonitorService(BaseModuleService):
             user_id=str(user_id),
             signals_emitted=len(signals),
         )
-        return signals
+        return ModuleOutcome(signals=signals)

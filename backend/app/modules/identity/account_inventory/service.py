@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from backend.app.core.enums import Confidence, EntityType, Severity
 from backend.app.core.logging import get_logger
+from backend.app.modules.base.outcome import ModuleOutcome
 from backend.app.modules.base.service import BaseModuleService
 from backend.app.providers.base.runner import run_provider
 from backend.app.providers.tools.holehe.client import HoleheProvider
@@ -39,8 +40,8 @@ class AccountInventoryService(BaseModuleService):
         asset_id: uuid.UUID,
         asset_value: str,
         ctx: ScanExecutionContext | None = None,
-    ) -> list[SignalCreate]:
-        signals: list[SignalCreate] = []
+    ) -> ModuleOutcome:
+        account_signals: list[SignalCreate] = []
 
         # Record audit trail before spawning the subprocess.
         # Entity value is SHA-256 hashed so the log contains no PII.
@@ -68,7 +69,7 @@ class AccountInventoryService(BaseModuleService):
         )
 
         if not result.success:
-            return signals
+            return ModuleOutcome()
 
         for finding in result.findings:
             raw = finding.get("raw", {})
@@ -78,7 +79,7 @@ class AccountInventoryService(BaseModuleService):
                     "Account found: ", ""
                 )
 
-            signals.append(
+            account_signals.append(
                 SignalCreate(
                     signal_type="account_discovered",
                     category="identity_inventory",
@@ -126,7 +127,7 @@ class AccountInventoryService(BaseModuleService):
                     raw.get("email", "") if isinstance(raw, dict) else ""
                 ) or finding.get("title", "").replace("Email discovered: ", "")
 
-                signals.append(
+                account_signals.append(
                     SignalCreate(
                         signal_type="account_discovered",
                         category="identity_inventory",
@@ -175,7 +176,7 @@ class AccountInventoryService(BaseModuleService):
                 ) or finding.get("title", "").replace("Username found: ", "")
                 profile_url = raw.get("url") if isinstance(raw, dict) else None
 
-                signals.append(
+                account_signals.append(
                     SignalCreate(
                         signal_type="account_discovered",
                         category="identity_inventory",
@@ -208,6 +209,6 @@ class AccountInventoryService(BaseModuleService):
         logger.info(
             "account_inventory.completed",
             user_id=str(user_id),
-            signals_emitted=len(signals),
+            signals_emitted=len(account_signals),
         )
-        return signals
+        return ModuleOutcome(account_signals=account_signals)

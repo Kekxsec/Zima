@@ -1,6 +1,7 @@
 import re
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 from urllib.parse import urlparse
 
 from backend.app.db.models.email_accounts import DiscoveredAccountSourceType
@@ -9,22 +10,16 @@ from backend.app.signals.schemas import SignalCreate
 
 SCAN_DISCOVERY_UPLOAD_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
-_ACCOUNT_SIGNAL_TYPES = frozenset({"account_discovered", "username_exposure"})
 _PROVIDER_TO_SOURCE_TYPE = {
-    "epieos": DiscoveredAccountSourceType.EPIEOS,
     "tool_holehe": DiscoveredAccountSourceType.HOLEHE,
     "tool_maigret": DiscoveredAccountSourceType.MAIGRET,
 }
 
 
-def is_scan_account_signal(signal: SignalCreate) -> bool:
-    return signal.signal_type in _ACCOUNT_SIGNAL_TYPES
-
-
 async def build_account_upsert_payload(
     signal: SignalCreate,
     service_registry_repo: ServiceRegistryRepository,
-) -> dict[str, object] | None:
+) -> dict[str, Any] | None:
     evidence = signal.evidence if isinstance(signal.evidence, dict) else {}
     platform = str(evidence.get("platform", "") or "").strip()
     if not platform:

@@ -30,7 +30,7 @@ class BillingService:
             metadata={"zima_user_id": str(user_id)},
         )
         logger.info("billing.customer_created", user_id=str(user_id))
-        return customer.id
+        return str(customer.id)
 
     async def create_checkout_session(
         self,
@@ -48,7 +48,7 @@ class BillingService:
             success_url=success_url,
             cancel_url=cancel_url,
         )
-        return session.url
+        return str(session.url)
 
     async def create_portal_session(
         self,
@@ -61,7 +61,7 @@ class BillingService:
             customer=stripe_customer_id,
             return_url=return_url,
         )
-        return session.url
+        return str(session.url)
 
     async def cancel_subscription(self, stripe_customer_id: str) -> None:
         """Cancels all active subscriptions for a customer at period end."""

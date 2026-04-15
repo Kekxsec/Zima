@@ -1,19 +1,26 @@
 # backend/app/modules/identity/username_exposure/service.py
+from __future__ import annotations
+
 import uuid
+from typing import TYPE_CHECKING, Any
 
 from backend.app.core.config import settings
 from backend.app.core.enums import Confidence, EntityType, Severity
 from backend.app.core.logging import get_logger
+from backend.app.modules.base.outcome import ModuleOutcome
 from backend.app.modules.base.service import BaseModuleService
 from backend.app.providers.base.runner import run_provider
 from backend.app.providers.social.emailcrawlr.client import EmailcrawlrProvider
 from backend.app.providers.social.gravatar.client import GravatarProvider
 from backend.app.signals.schemas import SignalCreate
 
+if TYPE_CHECKING:
+    from backend.app.jobs.context import ScanExecutionContext
+
 logger = get_logger(__name__)
 
 
-def _emailcrawlr_severity(data: dict) -> Severity:
+def _emailcrawlr_severity(data: dict[str, Any]) -> Severity:
     """MEDIUM baseline; escalate to HIGH if phone, address, or full name present."""
     if any(
         [
@@ -36,8 +43,8 @@ class UsernameExposureService(BaseModuleService):
         user_id: uuid.UUID,
         asset_id: uuid.UUID,
         asset_value: str,
-        ctx: object = None,
-    ) -> list[SignalCreate]:
+        ctx: ScanExecutionContext | None = None,
+    ) -> ModuleOutcome:
         signals: list[SignalCreate] = []
 
         # --- EmailCrawlr: per-email PII exposure ---
@@ -49,7 +56,7 @@ class UsernameExposureService(BaseModuleService):
 
             ec_email_result = await run_provider(
                 provider_name="emailcrawlr",
-                call=lambda: ec.get_email(asset_value),
+                call=lambda: ec.get_email(asset_value),  # type: ignore[arg-type, return-value]
                 has_credentials=True,
                 user_id=user_id,
                 entity_type="email",
@@ -60,7 +67,7 @@ class UsernameExposureService(BaseModuleService):
             for email_data in ec_email_result.findings:
                 if not isinstance(email_data, dict) or not email_data:
                     continue
-                severity = _emailcrawlr_severity(email_data)
+                severity = _emailcrawlr_severity(email_data)  # type: ignore[arg-type]
                 signals.append(
                     SignalCreate(
                         signal_type="email_public_exposure",
@@ -172,7 +179,7 @@ class UsernameExposureService(BaseModuleService):
             gravatar = GravatarProvider(api_key=api_key)
             grav_result = await run_provider(
                 provider_name="gravatar",
-                call=lambda: gravatar.lookup(asset_value),
+                call=lambda: gravatar.lookup(asset_value),  # type: ignore[arg-type, return-value]
                 has_credentials=True,
                 user_id=user_id,
                 entity_type="email",
@@ -183,11 +190,12 @@ class UsernameExposureService(BaseModuleService):
                 gravatar_data = grav_result.findings[0]
                 if gravatar_data:
                     for signal in signals:
-                        signal.evidence["gravatar"] = gravatar_data
+                        if signal.evidence is not None:
+                            signal.evidence["gravatar"] = gravatar_data
 
         logger.info(
             "username_exposure.completed",
             user_id=str(user_id),
             signals_emitted=len(signals),
         )
-        return signals
+        return ModuleOutcome(signals=signals)

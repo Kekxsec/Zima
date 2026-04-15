@@ -1,14 +1,21 @@
 # backend/app/modules/identity/phone_exposure/service.py
+from __future__ import annotations
+
 import uuid
+from typing import TYPE_CHECKING
 
 from backend.app.core.config import settings
 from backend.app.core.enums import Confidence, EntityType, Severity
 from backend.app.core.logging import get_logger
+from backend.app.modules.base.outcome import ModuleOutcome
 from backend.app.modules.base.service import BaseModuleService
 from backend.app.providers.base.runner import run_provider
 from backend.app.providers.phone.callername.client import CallerNameProvider
 from backend.app.providers.phone.numverify.client import NumverifyProvider
 from backend.app.signals.schemas import SignalCreate
+
+if TYPE_CHECKING:
+    from backend.app.jobs.context import ScanExecutionContext
 
 logger = get_logger(__name__)
 
@@ -29,8 +36,8 @@ class PhoneExposureService(BaseModuleService):
         user_id: uuid.UUID,
         asset_id: uuid.UUID,
         asset_value: str,
-        ctx: object = None,
-    ) -> list[SignalCreate]:
+        ctx: ScanExecutionContext | None = None,
+    ) -> ModuleOutcome:
         signals: list[SignalCreate] = []
 
         # --- Numverify: validation + carrier + line type ---
@@ -177,4 +184,4 @@ class PhoneExposureService(BaseModuleService):
             phone=asset_value,
             signals_emitted=len(signals),
         )
-        return signals
+        return ModuleOutcome(signals=signals)

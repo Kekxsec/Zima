@@ -1,4 +1,5 @@
 # backend/app/api/v1/auth.py
+import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -144,7 +145,9 @@ async def logout(
                 await token_blacklist.revoke(jti, exp)
             # Fallback revocation: update session_revoked_at for tokens that
             # predate JTI support or when Redis is unavailable.
-            user = await UserRepository(db).get_active_by_id(str(payload["sub"]))
+            user = await UserRepository(db).get_active_by_id(
+                uuid.UUID(str(payload["sub"]))
+            )
             if user is not None:
                 issued_at = payload.get("iat")
                 user.session_revoked_at = (

@@ -15,6 +15,7 @@ from backend.app.db.repositories.assets import AssetRepository
 from backend.app.db.repositories.audit import AuditRepository
 from backend.app.db.repositories.findings import FindingRepository
 from backend.app.db.repositories.signals import SignalRepository
+from backend.app.signals.models import Signal
 
 router = APIRouter(prefix="/findings", tags=["findings"])
 
@@ -30,17 +31,14 @@ def _confidence_to_score(value: str) -> float:
 
 
 def _extract_breach_details(
-    signal_evidence: object,
+    signal_evidence: dict[str, object] | None,
 ) -> tuple[str | None, str | None, list[str]]:
     if not isinstance(signal_evidence, dict):
         return None, None, []
 
     raw_finding = signal_evidence.get("raw_finding")
-    raw_payload = (
-        raw_finding.get("raw")
-        if isinstance(raw_finding, dict) and isinstance(raw_finding.get("raw"), dict)
-        else {}
-    )
+    raw_value = raw_finding.get("raw") if isinstance(raw_finding, dict) else None
+    raw_payload: dict[str, object] = raw_value if isinstance(raw_value, dict) else {}
 
     breach_name = (
         signal_evidence.get("breach_name") or raw_payload.get("breach_name") or None
@@ -67,7 +65,7 @@ def _extract_breach_details(
     )
 
 
-def _serialize_supporting_signal(signal: object) -> dict[str, object]:
+def _serialize_supporting_signal(signal: Signal) -> dict[str, object]:
     breach_name, breach_date, data_classes = _extract_breach_details(
         getattr(signal, "evidence", None)
     )
@@ -88,7 +86,7 @@ def _serialize_supporting_signal(signal: object) -> dict[str, object]:
     }
 
 
-def _serialize_impacted_breaches(signals: list[object]) -> list[dict[str, object]]:
+def _serialize_impacted_breaches(signals: list[Signal]) -> list[dict[str, object]]:
     seen: set[tuple[str, str, str | None, str, str]] = set()
     impacted: list[dict[str, object]] = []
 

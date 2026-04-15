@@ -37,8 +37,13 @@ class FindingRepository:
                 constraint="uq_finding_id",
                 set_={
                     "status": FindingStatus.OPEN,
+                    "severity": finding.severity,
+                    "confidence": finding.confidence,
+                    "title": finding.title,
                     "explanation": finding.explanation,
                     "contributing_signal_ids": finding.contributing_signal_ids,
+                    "affected_entity_ids": finding.affected_entity_ids,
+                    "rule_name": finding.rule_name,
                     "updated_at": func.now(),
                 },
             )

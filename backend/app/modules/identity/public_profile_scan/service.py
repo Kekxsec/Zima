@@ -4,16 +4,21 @@
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING
 
 from backend.app.core.config import settings
 from backend.app.core.enums import Confidence, EntityType, Severity
 from backend.app.core.logging import get_logger
+from backend.app.modules.base.outcome import ModuleOutcome
 from backend.app.modules.base.service import BaseModuleService
 from backend.app.providers.base.exceptions import ProviderError
 from backend.app.providers.base.runner import run_provider
 from backend.app.providers.social.emailcrawlr.client import EmailcrawlrProvider
 from backend.app.providers.social.gravatar.client import GravatarProvider
 from backend.app.signals.schemas import SignalCreate
+
+if TYPE_CHECKING:
+    from backend.app.jobs.context import ScanExecutionContext
 
 logger = get_logger(__name__)
 
@@ -35,8 +40,8 @@ class PublicProfileScanService(BaseModuleService):
         user_id: uuid.UUID,
         asset_id: uuid.UUID,
         asset_value: str,
-        ctx: object = None,
-    ) -> list[SignalCreate]:
+        ctx: ScanExecutionContext | None = None,
+    ) -> ModuleOutcome:
         signals: list[SignalCreate] = []
 
         # --- Gravatar ---
@@ -49,7 +54,7 @@ class PublicProfileScanService(BaseModuleService):
 
         gravatar_result = await run_provider(
             provider_name="gravatar",
-            call=lambda: gravatar.lookup(asset_value),
+            call=lambda: gravatar.lookup(asset_value),  # type: ignore[arg-type, return-value]
             has_credentials=True,
             user_id=user_id,
             entity_type="email",
@@ -63,10 +68,9 @@ class PublicProfileScanService(BaseModuleService):
             profile = gravatar_result.findings[0]
             display_name = profile.get("display_name") or ""
             profile_url = profile.get("profile_url") or ""
-            verified_accounts: list = (
-                profile.get("verified_accounts", [])
-                if isinstance(profile.get("verified_accounts"), list)
-                else []
+            _va_raw = profile.get("verified_accounts")
+            verified_accounts: list[object] = (
+                _va_raw if isinstance(_va_raw, list) else []
             )
             gravatar_hash = profile.get("hash") or ""
 
@@ -171,4 +175,4 @@ class PublicProfileScanService(BaseModuleService):
             user_id=str(user_id),
             signals_emitted=len(signals),
         )
-        return signals
+        return ModuleOutcome(signals=signals)

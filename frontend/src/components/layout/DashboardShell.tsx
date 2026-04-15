@@ -12,6 +12,7 @@ import {
   ScanLine,
   BarChart2,
   Laptop,
+  HardDrive,
   Mailbox,
   MonitorSmartphone,
   User,
@@ -31,6 +32,7 @@ const NAV_PRIMARY = [
   { label: "Your plan", href: "/dashboard", icon: LayoutDashboard },
   { label: "Accounts", href: "/accounts", icon: Mailbox },
   { label: "Priorities", href: "/findings", icon: AlertTriangle },
+  { label: "Device", href: "/device", icon: HardDrive },
   { label: "Browser", href: "/browser", icon: Laptop },
 ]
 

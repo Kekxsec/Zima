@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ParsedEmail(BaseModel):
@@ -18,8 +18,13 @@ class ParsedEmail(BaseModel):
     from_name: str | None = None
     sender_domain: str | None = None
     to_address: str | None = None
+    to_addresses: list[str] = Field(default_factory=list)
     date: datetime | None = None
+    references: list[str] = Field(default_factory=list)
     # Newsletter / subscription detection headers (RFC 2919, RFC 2369)
     list_id: str | None = None
     list_unsubscribe: str | None = None
+    precedence: str | None = None
     reply_to: str | None = None
+    mime_type: str | None = None
+    message_size_bytes: int | None = None

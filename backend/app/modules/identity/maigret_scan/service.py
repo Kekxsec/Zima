@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from backend.app.core.enums import Confidence, EntityType, Severity
 from backend.app.core.logging import get_logger
+from backend.app.modules.base.outcome import ModuleOutcome
 from backend.app.modules.base.service import BaseModuleService
 from backend.app.providers.base.runner import run_provider
 from backend.app.providers.tools.maigret.client import MaigretProvider
@@ -37,7 +38,7 @@ class MaigretScanService(BaseModuleService):
         asset_id: uuid.UUID,
         asset_value: str,
         ctx: ScanExecutionContext | None = None,
-    ) -> list[SignalCreate]:
+    ) -> ModuleOutcome:
         signals: list[SignalCreate] = []
 
         # Record audit trail before spawning the subprocess.
@@ -66,7 +67,7 @@ class MaigretScanService(BaseModuleService):
         )
 
         if not result.success:
-            return signals
+            return ModuleOutcome(signals=signals)
 
         for finding in result.findings:
             raw = finding.get("raw", {})
@@ -109,4 +110,4 @@ class MaigretScanService(BaseModuleService):
             username=asset_value,
             signals_emitted=len(signals),
         )
-        return signals
+        return ModuleOutcome(signals=signals)

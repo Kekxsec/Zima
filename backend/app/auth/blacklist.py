@@ -29,9 +29,9 @@ class TokenBlacklist:
     """Thin wrapper around a Redis key-per-JTI revocation store."""
 
     def __init__(self) -> None:
-        self._redis: aioredis.Redis | None = None  # type: ignore[type-arg]
+        self._redis: aioredis.Redis | None = None
 
-    def _client(self) -> aioredis.Redis:  # type: ignore[type-arg]
+    def _client(self) -> aioredis.Redis:
         if self._redis is None:
             self._redis = aioredis.from_url(
                 settings.redis_url, socket_connect_timeout=3

@@ -34,8 +34,8 @@ async def test_delete_account_soft_deletes_user_immediately(
     auth_client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
-    """DELETE /account/ returns 202 and immediately marks user as inactive."""
-    response = await auth_client.delete("/api/v1/account/")
+    """DELETE /account returns 202 and immediately marks user as inactive."""
+    response = await auth_client.delete("/api/v1/account")
     assert response.status_code == 202
     assert "deletion initiated" in response.json()["message"]
 
@@ -51,7 +51,7 @@ async def test_delete_account_prevents_subsequent_sign_in(
     auth_client: AsyncClient,
 ) -> None:
     """After deletion, using the same JWT returns 401."""
-    await auth_client.delete("/api/v1/account/")
+    await auth_client.delete("/api/v1/account")
 
     # Subsequent authenticated request should fail — user is inactive
     response = await auth_client.get("/api/v1/account/audit-log")
@@ -166,6 +166,7 @@ async def test_subscription_updated_upgrades_tier(
     with (
         patch("stripe.Webhook.construct_event", return_value=mock_event),
         patch("backend.app.billing.webhooks.settings") as mock_settings,
+        patch("backend.app.billing.webhooks._is_stripe_ip", return_value=True),
     ):
         mock_settings.stripe_webhook_secret = MagicMock()
         mock_settings.stripe_webhook_secret.get_secret_value.return_value = "whsec_test"
@@ -207,6 +208,7 @@ async def test_subscription_deleted_downgrades_to_core(
     with (
         patch("stripe.Webhook.construct_event", return_value=mock_event),
         patch("backend.app.billing.webhooks.settings") as mock_settings,
+        patch("backend.app.billing.webhooks._is_stripe_ip", return_value=True),
     ):
         mock_settings.stripe_webhook_secret = MagicMock()
         mock_settings.stripe_webhook_secret.get_secret_value.return_value = "whsec_test"
@@ -245,6 +247,7 @@ async def test_payment_failed_logs_and_does_not_downgrade(
     with (
         patch("stripe.Webhook.construct_event", return_value=mock_event),
         patch("backend.app.billing.webhooks.settings") as mock_settings,
+        patch("backend.app.billing.webhooks._is_stripe_ip", return_value=True),
     ):
         mock_settings.stripe_webhook_secret = MagicMock()
         mock_settings.stripe_webhook_secret.get_secret_value.return_value = "whsec_test"
@@ -286,6 +289,7 @@ async def test_tier_cache_invalidated_after_upgrade(
     with (
         patch("stripe.Webhook.construct_event", return_value=mock_event),
         patch("backend.app.billing.webhooks.settings") as mock_settings,
+        patch("backend.app.billing.webhooks._is_stripe_ip", return_value=True),
         patch.object(load_tier_config, "cache_clear") as mock_cache_clear,
     ):
         mock_settings.stripe_webhook_secret = MagicMock()
@@ -328,8 +332,9 @@ async def test_checkout_rejects_unknown_tier(
 async def test_portal_requires_stripe_customer(
     auth_client: AsyncClient,
 ) -> None:
-    """POST /billing/portal returns 400 when user has no stripe_customer_id."""
-    # Default test user has no stripe_customer_id
+    """POST /billing/portal returns 400 when user has no stripe_customer_id or email."""
+    # Default test user has no stripe_customer_id; _ensure_stripe_customer tries to
+    # create one but fails because the test user has no verified primary email asset.
     response = await auth_client.post("/api/v1/billing/portal")
     assert response.status_code == 400
-    assert "No billing account" in response.json()["detail"]
+    assert "No verified email address" in response.json()["detail"]

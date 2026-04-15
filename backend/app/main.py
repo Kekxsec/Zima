@@ -44,7 +44,7 @@ async def _periodic_redis_health_check() -> None:
             client: aioredis.Redis = aioredis.from_url(
                 settings.redis_url, socket_connect_timeout=3
             )
-            await client.ping()
+            await client.ping()  # type: ignore[misc]
             await client.aclose()
         except asyncio.CancelledError:
             break
@@ -101,6 +101,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if stale_count > 0:
             logger.info("startup.stale_scans_cleared", count=stale_count)
 
+    # Re-run any GDPR erasure tasks that were interrupted by a server restart
+    from backend.app.jobs.recovery import recover_stale_deletions
+
+    await recover_stale_deletions()
+
     cleanup_task = asyncio.create_task(_periodic_token_cleanup())
     redis_health_task = asyncio.create_task(_periodic_redis_health_check())
     try:
@@ -142,7 +147,7 @@ def create_app() -> FastAPI:
     )
 
     app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]  # slowapi typing
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
     @app.exception_handler(Exception)
     async def global_exception_handler(
@@ -195,7 +200,7 @@ def create_app() -> FastAPI:
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
         response = await call_next(request)
-        secure_headers.set_headers(response)  # type: ignore[arg-type]  # secure library MutableHeaders compat
+        secure_headers.set_headers(response)  # type: ignore[arg-type]
         return response
 
     app.add_middleware(

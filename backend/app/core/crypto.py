@@ -107,7 +107,7 @@ def decrypt_field(ciphertext: str) -> str:
         plaintext_bytes = aesgcm.decrypt(nonce, ct, None)
     except Exception as exc:
         raise CryptoError("Decryption failed — wrong key or corrupted data") from exc
-    return plaintext_bytes.decode("utf-8")
+    return str(plaintext_bytes.decode("utf-8"))
 
 
 def blind_index(value: str) -> str:

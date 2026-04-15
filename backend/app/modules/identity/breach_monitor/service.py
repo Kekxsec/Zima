@@ -1,10 +1,13 @@
 # backend/app/modules/identity/breach_monitor/service.py
+from __future__ import annotations
+
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from backend.app.core.config import settings
 from backend.app.core.enums import Confidence, EntityType, Severity
 from backend.app.core.logging import get_logger
+from backend.app.modules.base.outcome import ModuleOutcome
 from backend.app.modules.base.service import BaseModuleService
 from backend.app.providers.base.runner import run_provider
 from backend.app.providers.breach.breachdirectory.client import BreachDirectoryProvider
@@ -12,6 +15,9 @@ from backend.app.providers.breach.dehashed.client import DehashedProvider
 from backend.app.providers.breach.hibp.client import HibpProvider
 from backend.app.providers.breach.leakcheck.client import LeakCheckProvider
 from backend.app.signals.schemas import SignalCreate
+
+if TYPE_CHECKING:
+    from backend.app.jobs.context import ScanExecutionContext
 
 logger = get_logger(__name__)
 
@@ -50,8 +56,8 @@ class BreachMonitorService(BaseModuleService):
         user_id: uuid.UUID,
         asset_id: uuid.UUID,
         asset_value: str,
-        ctx: object = None,
-    ) -> list[SignalCreate]:
+        ctx: ScanExecutionContext | None = None,
+    ) -> ModuleOutcome:
         signals: list[SignalCreate] = []
 
         # --- HIBP ---
@@ -97,6 +103,8 @@ class BreachMonitorService(BaseModuleService):
         # --- DeHashed ---
         dh_has_creds = bool(settings.dehashed_email and settings.dehashed_api_key)
         if dh_has_creds:
+            assert settings.dehashed_email is not None
+            assert settings.dehashed_api_key is not None
             dehashed_provider = DehashedProvider(
                 api_email=settings.dehashed_email,
                 api_key=settings.dehashed_api_key.get_secret_value(),
@@ -151,6 +159,7 @@ class BreachMonitorService(BaseModuleService):
         # --- BreachDirectory ---
         bd_has_creds = bool(settings.breachdirectory_rapidapi_key)
         if bd_has_creds:
+            assert settings.breachdirectory_rapidapi_key is not None
             bd_provider = BreachDirectoryProvider(
                 api_key=settings.breachdirectory_rapidapi_key.get_secret_value()
             )
@@ -255,4 +264,4 @@ class BreachMonitorService(BaseModuleService):
             user_id=str(user_id),
             signals_emitted=len(signals),
         )
-        return signals
+        return ModuleOutcome(signals=signals)

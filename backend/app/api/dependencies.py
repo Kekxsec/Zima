@@ -13,6 +13,7 @@ from backend.app.auth.utils import decode_access_token, decode_companion_token
 from backend.app.db.repositories.assets import AssetRepository
 from backend.app.db.repositories.audit import AuditRepository
 from backend.app.db.repositories.auth_tokens import AuthTokenRepository
+from backend.app.db.repositories.companion import CompanionRepository
 from backend.app.db.repositories.users import UserRepository
 from backend.app.db.session import get_db_session
 
@@ -110,6 +111,17 @@ async def get_companion_user(
 
     user = await user_repo.get_active_by_id(user_id)
     if not user:
+        raise credentials_exception
+
+    # Revocation check: verify the token's jti matches the current session's
+    # companion_jti. Re-registering a device rotates the jti in the DB, which
+    # immediately invalidates any previously issued token for that user.
+    companion_repo = CompanionRepository(db)
+    session = await companion_repo.get_session_by_user(user_id)
+    if session is None:
+        raise credentials_exception
+    token_jti = payload.get("jti")
+    if not isinstance(token_jti, str) or token_jti != session.companion_jti:
         raise credentials_exception
 
     return user

@@ -290,8 +290,6 @@ export default function ScanPage() {
                 className={`h-full transition-all duration-700 ${
                   scanState === "completed"
                     ? "bg-emerald-400"
-                    : scanState === "failed"
-                    ? "bg-red-400"
                     : "bg-primary"
                 }`}
                 style={{ width: `${estimatedProgressPercent}%` }}

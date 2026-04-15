@@ -14,7 +14,9 @@ GET  /email-accounts/export                   — Download all accounts as CSV
 import csv
 import hashlib
 import io
+import os
 import re
+import tempfile
 import uuid
 from datetime import UTC, datetime
 
@@ -28,7 +30,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,7 +38,11 @@ from backend.app.api.dependencies import get_current_user, get_db_session
 from backend.app.auth.models import User
 from backend.app.core.crypto import CryptoError, decrypt_field
 from backend.app.core.rate_limit import limiter
-from backend.app.db.models.email_accounts import DiscoveredAccount, MboxUploadStatus
+from backend.app.db.models.email_accounts import (
+    DiscoveredAccount,
+    MboxUpload,
+    MboxUploadStatus,
+)
 from backend.app.db.models.integrations import IntegrationProvider
 from backend.app.db.repositories.assets import AssetRepository
 from backend.app.db.repositories.discovered_accounts import DiscoveredAccountRepository
@@ -57,20 +63,46 @@ _MAX_UPLOAD_BYTES: int = 100 * 1024 * 1024
 _UPLOAD_CHUNK_BYTES: int = 1024 * 1024
 
 
-async def _read_upload_limited(file: UploadFile, max_bytes: int) -> bytes:
-    """Read an upload incrementally and stop once the size cap is exceeded."""
-    data = bytearray()
-    while True:
-        chunk = await file.read(_UPLOAD_CHUNK_BYTES)
-        if not chunk:
-            break
-        data.extend(chunk)
-        if len(data) > max_bytes:
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail=f"File exceeds the {max_bytes // (1024 * 1024)} MB limit.",
-            )
-    return bytes(data)
+async def _stream_upload_to_tempfile(
+    file: UploadFile,
+    max_bytes: int,
+) -> tuple[str, str]:
+    """Stream an upload to a temp file while enforcing the size cap and hashing."""
+    bytes_seen = 0
+    hasher = hashlib.sha256()
+    temp_file = tempfile.NamedTemporaryFile(
+        delete=False,
+        suffix=".mbox",
+        prefix="zima-upload-",
+    )
+
+    try:
+        while True:
+            chunk = await file.read(_UPLOAD_CHUNK_BYTES)
+            if not chunk:
+                break
+            bytes_seen += len(chunk)
+            if bytes_seen > max_bytes:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"File exceeds the {max_bytes // (1024 * 1024)} MB limit.",
+                )
+            hasher.update(chunk)
+            temp_file.write(chunk)
+    except Exception:
+        temp_file.close()
+        os.unlink(temp_file.name)
+        raise
+
+    temp_file.close()
+    if bytes_seen == 0:
+        os.unlink(temp_file.name)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Empty file.",
+        )
+
+    return temp_file.name, hasher.hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +124,8 @@ async def upload_mbox(
 
     - Rate-limited: 2 uploads per hour per user.
     - Idempotent: same file hash returns the existing upload record.
-    - Raw bytes are processed in a background task and NEVER persisted to disk.
+    - Upload bytes are streamed to a temp file to avoid holding large inboxes
+      in memory before background processing starts.
     """
     # Validate content type loosely. Accept application/mbox, text/plain,
     # and application/octet-stream.
@@ -108,55 +141,58 @@ async def upload_mbox(
             detail="Expected an mbox file.",
         )
 
-    data = await _read_upload_limited(file, _MAX_UPLOAD_BYTES)
-    if not data:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Empty file."
+    temp_path, file_hash = await _stream_upload_to_tempfile(file, _MAX_UPLOAD_BYTES)
+
+    try:
+        # Resolve the user's primary verified email asset
+        asset_repo = AssetRepository(db)
+        asset = await asset_repo.get_primary_email(current_user.id)
+        if asset is None or not asset.is_verified:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "No verified email address found. Please verify an email before "
+                    "uploading."
+                ),
+            )
+
+        upload_repo = MboxUploadRepository(db)
+
+        # Idempotency: if same file was already uploaded, return existing record
+        existing = await upload_repo.get_by_hash(
+            user_id=current_user.id, file_hash=file_hash
         )
+        if existing is not None:
+            os.unlink(temp_path)
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={
+                    "upload_id": str(existing.id),
+                    "status": existing.status,
+                    "message": "This file has already been uploaded.",
+                },
+            )
 
-    file_hash = hashlib.sha256(data).hexdigest()
-
-    # Resolve the user's primary verified email asset
-    asset_repo = AssetRepository(db)
-    asset = await asset_repo.get_primary_email(current_user.id)
-    if asset is None or not asset.is_verified:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "No verified email address found. Please verify an email before "
-                "uploading."
-            ),
+        upload = await upload_repo.create(
+            user_id=current_user.id,
+            filename=file.filename or "upload.mbox",
+            file_hash=file_hash,
         )
+        await db.commit()
 
-    upload_repo = MboxUploadRepository(db)
-
-    # Idempotency: if same file was already uploaded, return existing record
-    existing = await upload_repo.get_by_hash(
-        user_id=current_user.id, file_hash=file_hash
-    )
-    if existing is not None:
-        return {
-            "upload_id": str(existing.id),
-            "status": existing.status,
-            "message": "This file has already been uploaded.",
-        }
-
-    upload = await upload_repo.create(
-        user_id=current_user.id,
-        filename=file.filename or "upload.mbox",
-        file_hash=file_hash,
-    )
-    await db.commit()
-
-    # Pass only serialisable values to the background task (Rule 3)
-    background_tasks.add_task(
-        process_mbox_upload,
-        user_id=current_user.id,
-        upload_id=upload.id,
-        asset_id=asset.id,
-        recipient_email=str(asset.value),
-        mbox_bytes=data,
-    )
+        # Pass only serialisable values to the background task (Rule 3)
+        background_tasks.add_task(
+            process_mbox_upload,
+            user_id=current_user.id,
+            upload_id=upload.id,
+            asset_id=asset.id,
+            recipient_email=str(asset.value),
+            mbox_path=temp_path,
+        )
+    except Exception:
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+        raise
 
     return {"upload_id": str(upload.id), "status": MboxUploadStatus.PENDING}
 
@@ -387,17 +423,17 @@ async def create_alias_for_account(
                     ),
                 )
             addy = AddyIoProvider(api_key=api_key)
-            result = await addy.create_alias(
+            addy_result = await addy.create_alias(
                 domain=body.domain,
                 description=f"Zima: {account.display_name}",
                 local_part=prefix,
             )
             return {
                 "provider": body.provider,
-                "alias": result.alias,
-                "alias_id": result.alias_id,
-                "local_part": result.local_part,
-                "domain": result.domain,
+                "alias": addy_result.alias,
+                "alias_id": addy_result.alias_id,
+                "local_part": addy_result.local_part,
+                "domain": addy_result.domain,
                 "service_name": account.service_name,
             }
 
@@ -409,7 +445,7 @@ async def create_alias_for_account(
     except ProviderError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Alias creation failed: {exc.message}",
+            detail=f"Alias creation failed: {exc}",
         ) from exc
 
 
@@ -694,40 +730,38 @@ async def export_accounts(
 # ---------------------------------------------------------------------------
 
 
-def _fmt_dt(dt: object) -> str:
+def _fmt_dt(dt: datetime | None) -> str:
     if dt is None:
         return ""
-    if hasattr(dt, "isoformat"):
-        return dt.isoformat()  # type: ignore[union-attr]
-    return str(dt)
+    return dt.isoformat()
 
 
-def _upload_to_dict(u: object) -> dict[str, object]:
+def _upload_to_dict(u: MboxUpload) -> dict[str, object]:
     return {
-        "id": str(u.id),  # type: ignore[union-attr]
-        "filename": u.filename,  # type: ignore[union-attr]
-        "status": u.status,  # type: ignore[union-attr]
-        "accounts_discovered": u.accounts_discovered,  # type: ignore[union-attr]
-        "signals_created": u.signals_created,  # type: ignore[union-attr]
-        "error_detail": u.error_detail,  # type: ignore[union-attr]
-        "processed_at": _fmt_dt(u.processed_at),  # type: ignore[union-attr]
-        "created_at": _fmt_dt(u.created_at),  # type: ignore[union-attr]
+        "id": str(u.id),
+        "filename": u.filename,
+        "status": u.status,
+        "accounts_discovered": u.accounts_discovered,
+        "signals_created": u.signals_created,
+        "error_detail": u.error_detail,
+        "processed_at": _fmt_dt(u.processed_at),
+        "created_at": _fmt_dt(u.created_at),
     }
 
 
-def _account_to_dict(a: object) -> dict[str, object]:
+def _account_to_dict(a: DiscoveredAccount) -> dict[str, object]:
     return {
-        "id": str(a.id),  # type: ignore[union-attr]
-        "service_name": a.service_name,  # type: ignore[union-attr]
-        "display_name": a.display_name,  # type: ignore[union-attr]
-        "email_used": a.email_used,  # type: ignore[union-attr]
-        "source_type": a.source_type,  # type: ignore[union-attr]
-        "sender_domain": a.sender_domain,  # type: ignore[union-attr]
-        "login_url": a.login_url,  # type: ignore[union-attr]
-        "password_reset_url": a.password_reset_url,  # type: ignore[union-attr]
-        "email_count": a.email_count,  # type: ignore[union-attr]
-        "first_seen_at": _fmt_dt(a.first_seen_at),  # type: ignore[union-attr]
-        "last_seen_at": _fmt_dt(a.last_seen_at),  # type: ignore[union-attr]
-        "is_reviewed": a.is_reviewed,  # type: ignore[union-attr]
-        "created_at": _fmt_dt(a.created_at),  # type: ignore[union-attr]
+        "id": str(a.id),
+        "service_name": a.service_name,
+        "display_name": a.display_name,
+        "email_used": a.email_used,
+        "source_type": a.source_type,
+        "sender_domain": a.sender_domain,
+        "login_url": a.login_url,
+        "password_reset_url": a.password_reset_url,
+        "email_count": a.email_count,
+        "first_seen_at": _fmt_dt(a.first_seen_at),
+        "last_seen_at": _fmt_dt(a.last_seen_at),
+        "is_reviewed": a.is_reviewed,
+        "created_at": _fmt_dt(a.created_at),
     }

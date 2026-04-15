@@ -1,121 +1,22 @@
 {
   "collapse-filter": false,
-  "search": "-tag:#graph_exclude",
-  "showTags": false,
+  "search": "",
+  "showTags": true,
   "showAttachments": false,
   "hideUnresolved": false,
-  "showOrphans": false,
+  "showOrphans": true,
   "collapse-color-groups": false,
-  "colorGroups": [
-    {
-      "query": "path:\"Zima/Research/Providers/breach/\" -#graph_exclude",
-      "color": {
-        "a": 1,
-        "rgb": 16731392
-      }
-    },
-    {
-      "query": "path:\"Zima/Research/Providers/domain/\" -#graph_exclude",
-      "color": {
-        "a": 1,
-        "rgb": 16753920
-      }
-    },
-    {
-      "query": "path:\"Zima/Research/Providers/threat_intel/\" -#graph_exclude",
-      "color": {
-        "a": 1,
-        "rgb": 16711845
-      }
-    },
-    {
-      "query": "path:\"Zima/Research/Providers/reputation/\" -#graph_exclude",
-      "color": {
-        "a": 1,
-        "rgb": 65416
-      }
-    },
-    {
-      "query": "path:\"Zima/Research/Providers/ip/\" -#graph_exclude",
-      "color": {
-        "a": 1,
-        "rgb": 9699539
-      }
-    },
-    {
-      "query": "path:\"Zima/Research/Providers/social/\" -#graph_exclude",
-      "color": {
-        "a": 1,
-        "rgb": 16724889
-      }
-    },
-    {
-      "query": "path:\"Zima/Research/Providers/cloud/\" -#graph_exclude",
-      "color": {
-        "a": 1,
-        "rgb": 13369344
-      }
-    },
-    {
-      "query": "path:\"Zima/Research/Providers/darkweb/\" -#graph_exclude",
-      "color": {
-        "a": 1,
-        "rgb": 4210752
-      }
-    },
-    {
-      "query": "path:\"Zima/Research/Providers/crypto/\" -#graph_exclude",
-      "color": {
-        "a": 1,
-        "rgb": 16171776
-      }
-    },
-    {
-      "query": "path:\"Zima/Research/Providers/search/\" -#graph_exclude",
-      "color": {
-        "a": 1,
-        "rgb": 10419968
-      }
-    },
-    {
-      "query": "path:\"Zima/Research/Providers/phone/\" -#graph_exclude",
-      "color": {
-        "a": 1,
-        "rgb": 16744448
-      }
-    },
-    {
-      "query": "path:\"Zima/Research/Providers/content_analysis/\" -#graph_exclude",
-      "color": {
-        "a": 1,
-        "rgb": 12303104
-      }
-    },
-    {
-      "query": "path:\"Zima/Research/Providers/tools/\" -#graph_exclude",
-      "color": {
-        "a": 1,
-        "rgb": 11184810
-      }
-    },
-    {
-      "query": "path:\"Zima/\" -#graph_exclude -path:\"Zima/Research/Providers/breach/\" -path:\"Zima/Research/Providers/domain/\" -path:\"Zima/Research/Providers/threat_intel/\" -path:\"Zima/Research/Providers/reputation/\" -path:\"Zima/Research/Providers/ip/\" -path:\"Zima/Research/Providers/social/\" -path:\"Zima/Research/Providers/cloud/\" -path:\"Zima/Research/Providers/darkweb/\" -path:\"Zima/Research/Providers/crypto/\" -path:\"Zima/Research/Providers/search/\" -path:\"Zima/Research/Providers/phone/\" -path:\"Zima/Research/Providers/content_analysis/\" -path:\"Zima/Research/Providers/tools/\"",
-      "color": {
-        "a": 1,
-        "rgb": 1489139
-      }
-    }
-  ],
+  "colorGroups": [],
   "collapse-display": false,
   "showArrow": false,
   "textFadeMultiplier": 0,
-  "nodeSizeMultiplier": 1.30373263888889,
-  "lineSizeMultiplier": 2.00279079861111,
+  "nodeSizeMultiplier": 1.04278211805556,
+  "lineSizeMultiplier": 0.501315104166667,
   "collapse-forces": false,
-  "centerStrength": 1,
-  "repelStrength": 20,
+  "centerStrength": 0.310329861111111,
+  "repelStrength": 13.1762152777778,
   "linkStrength": 1,
   "linkDistance": 30,
-  "scale": 0.4811705097349247,
+  "scale": 0.19465143226649753,
   "close": true
 }

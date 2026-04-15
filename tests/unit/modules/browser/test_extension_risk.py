@@ -72,14 +72,14 @@ async def test_run_emits_signal_for_known_extension() -> None:
             return_value={"id": "cfhdojbkjhnklbpkdaibdccddilifddb", "name": "AdBlock"},
         ),
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=USER_ID,
             asset_id=ASSET_ID,
             asset_value="cfhdojbkjhnklbpkdaibdccddilifddb:1.2.3:Chrome",
         )
 
-    assert len(signals) == 1
-    s = signals[0]
+    assert len(outcome.signals) == 1
+    s = outcome.signals[0]
     assert s.signal_type == "browser_extension_risk"
     assert s.severity == Severity.HIGH  # total_risk=500 > 478
     assert s.entity_type == EntityType.URL
@@ -106,16 +106,18 @@ async def test_run_resolves_latest_version() -> None:
             return_value=None,
         ),
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=USER_ID,
             asset_id=ASSET_ID,
-            asset_value="someextensionid",  # bare id → defaults to latest + Chrome
+            asset_value="abcdefghijklmnopabcdefghijklmnop",  # 32-char id → latest + Chrome
         )
 
-    mock_versions.assert_called_once_with("someextensionid")
-    mock_check.assert_called_once_with("someextensionid", "2.0.0", "Chrome")
-    assert len(signals) == 1
-    assert signals[0].severity == Severity.LOW  # total_risk=200 ≤ 377
+    mock_versions.assert_called_once_with("abcdefghijklmnopabcdefghijklmnop")
+    mock_check.assert_called_once_with(
+        "abcdefghijklmnopabcdefghijklmnop", "2.0.0", "Chrome"
+    )
+    assert len(outcome.signals) == 1
+    assert outcome.signals[0].severity == Severity.LOW  # total_risk=200 ≤ 377
 
 
 @pytest.mark.asyncio
@@ -132,13 +134,13 @@ async def test_run_returns_empty_when_no_crxcavator_report() -> None:
             return_value={},
         ),
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=USER_ID,
             asset_id=ASSET_ID,
             asset_value="unknownextid",
         )
 
-    assert signals == []
+    assert outcome.signals == []
 
 
 @pytest.mark.asyncio
@@ -151,13 +153,13 @@ async def test_run_graceful_on_crxcavator_failure() -> None:
             side_effect=ProviderError("CRXcavator down"),
         ),
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=USER_ID,
             asset_id=ASSET_ID,
             asset_value="someext:1.0.0:Chrome",
         )
 
-    assert signals == []
+    assert outcome.signals == []
 
 
 @pytest.mark.asyncio
@@ -177,7 +179,7 @@ async def test_run_firefox_uses_amo_provider() -> None:
             "backend.app.modules.browser.extension_risk.service.ChromeWebStoreApiProvider.get_extension",
         ) as mock_cws,
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=USER_ID,
             asset_id=ASSET_ID,
             asset_value="{uBlock0@raymondhill.net}:1.50.0:Firefox",
@@ -185,16 +187,16 @@ async def test_run_firefox_uses_amo_provider() -> None:
 
     mock_amo.assert_called_once()
     mock_cws.assert_not_called()
-    assert len(signals) == 1
-    assert signals[0].evidence["platform"] == "Firefox"
+    assert len(outcome.signals) == 1
+    assert outcome.signals[0].evidence["platform"] == "Firefox"
 
 
 @pytest.mark.asyncio
 async def test_run_empty_extension_id_returns_no_signals() -> None:
     service = ExtensionRiskService()
-    signals = await service.run(
+    outcome = await service.run(
         user_id=USER_ID,
         asset_id=ASSET_ID,
         asset_value="",
     )
-    assert signals == []
+    assert outcome.signals == []

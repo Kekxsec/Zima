@@ -50,7 +50,7 @@ line-length = 88
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "ANN", "S", "B", "A", "C4", "T20"]
-ignore = ["ANN101", "ANN102"]
+ignore = []
 
 [tool.ruff.lint.per-file-ignores]
 "backend/app/api/dependencies.py" = ["B008"]

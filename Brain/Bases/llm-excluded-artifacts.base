@@ -1,0 +1,7 @@
+filters:
+  and:
+    - kind == "artifact"
+    - llm_include == false
+views:
+  - type: table
+    name: LLM-Excluded Artifacts

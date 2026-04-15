@@ -1,6 +1,7 @@
 # backend/app/db/models/companion.py
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import DateTime, Index, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -38,7 +39,6 @@ class CompanionSession(Base, TimestampMixin):
 
     __table_args__ = (
         UniqueConstraint("user_id", name="uq_companion_sessions_user_id"),
-        Index("ix_companion_sessions_user_id", "user_id"),
     )
 
 
@@ -59,12 +59,11 @@ class BrowserSnapshot(Base):
     companion_session_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False
     )
-    raw_snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    raw_snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )
 
     __table_args__ = (
-        Index("ix_browser_snapshots_user_id", "user_id"),
         Index("ix_browser_snapshots_user_created", "user_id", "created_at"),
     )

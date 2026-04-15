@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Separator } from "@/components/ui/separator"
+import { CheckoutModal } from "@/components/billing/CheckoutModal"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,7 +38,6 @@ import type {
   AccountResponse,
   AuditLogResponse,
   BillingStatusResponse,
-  CheckoutSessionResponse,
   PortalSessionResponse,
   GdprExportResponse,
   MessageResponse,
@@ -51,17 +51,9 @@ function BillingSection() {
     queryFn: () => api.get<BillingStatusResponse>("/billing/status"),
   })
 
-  const { mutate: openCheckout, isPending: checkoutPending } = useMutation({
-    mutationFn: () => api.post<CheckoutSessionResponse>("/billing/checkout"),
-    onSuccess: (data) => { window.location.href = data.url },
-    onError: (err) => {
-      toast.error(err instanceof ApiRequestError ? err.detail : "Could not start checkout.")
-    },
-  })
-
   const { mutate: openPortal, isPending: portalPending } = useMutation({
     mutationFn: () => api.post<PortalSessionResponse>("/billing/portal"),
-    onSuccess: (data) => { window.location.href = data.url },
+    onSuccess: (data) => { window.location.href = data.portal_url },
     onError: (err) => {
       toast.error(err instanceof ApiRequestError ? err.detail : "Could not open billing portal.")
     },
@@ -105,13 +97,7 @@ function BillingSection() {
                 {portalPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Manage subscription"}
               </Button>
             ) : (
-              <Button
-                size="sm"
-                onClick={() => openCheckout()}
-                disabled={checkoutPending}
-              >
-                {checkoutPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Upgrade to Pro"}
-              </Button>
+              <CheckoutModal triggerLabel="Upgrade to Pro" />
             )}
           </div>
         ) : (

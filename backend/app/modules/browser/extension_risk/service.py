@@ -1,8 +1,12 @@
 # backend/app/modules/browser/extension_risk/service.py
+from __future__ import annotations
+
 import uuid
+from typing import TYPE_CHECKING, Any
 
 from backend.app.core.enums import Confidence, EntityType, Severity
 from backend.app.core.logging import get_logger
+from backend.app.modules.base.outcome import ModuleOutcome
 from backend.app.modules.base.service import BaseModuleService
 from backend.app.modules.browser.extension_risk.rules import crxcavator_severity
 from backend.app.providers.base.exceptions import ProviderError
@@ -21,6 +25,9 @@ from backend.app.providers.tools.malicious_extension_sentry.client import (
 )
 from backend.app.signals.schemas import SignalCreate
 
+if TYPE_CHECKING:
+    from backend.app.jobs.context import ScanExecutionContext
+
 logger = get_logger(__name__)
 
 
@@ -34,8 +41,8 @@ class ExtensionRiskService(BaseModuleService):
         user_id: uuid.UUID,
         asset_id: uuid.UUID,
         asset_value: str,
-        ctx: object = None,
-    ) -> list[SignalCreate]:
+        ctx: ScanExecutionContext | None = None,
+    ) -> ModuleOutcome:
         """Assess browser extension risk.
 
         Dispatches based on asset_value:
@@ -86,7 +93,7 @@ class ExtensionRiskService(BaseModuleService):
         asset_id: uuid.UUID,
         asset_value: str,
         parts: list[str],
-    ) -> list[SignalCreate]:
+    ) -> ModuleOutcome:
         """CRXcavator risk report for a single known extension asset."""
         signals: list[SignalCreate] = []
 
@@ -95,11 +102,11 @@ class ExtensionRiskService(BaseModuleService):
         platform = parts[2].strip() if len(parts) > 2 else "Chrome"
 
         if not extension_id:
-            return signals
+            return ModuleOutcome(signals=signals)
 
         # --- CRXcavator risk report ---
         crxcavator = CrxcavatorProvider()
-        crx_data: dict = {}
+        crx_data: dict[str, Any] = {}
         try:
             if version == "latest":
                 versions = await crxcavator.get_versions(extension_id)
@@ -120,10 +127,10 @@ class ExtensionRiskService(BaseModuleService):
             )
             crx_data = {}
 
-        risk = {}
+        risk: dict[str, Any] = {}
         if isinstance(crx_data, dict):
             data = crx_data.get("data") or crx_data
-            risk = data.get("risk") if isinstance(data, dict) else {}
+            risk = data.get("risk") if isinstance(data, dict) else {}  # type: ignore[assignment]
 
         total_risk = risk.get("total") if isinstance(risk, dict) else None
 
@@ -133,12 +140,12 @@ class ExtensionRiskService(BaseModuleService):
                 extension_id=extension_id,
                 version=version,
             )
-            return signals
+            return ModuleOutcome(signals=signals)
 
         severity = crxcavator_severity(int(total_risk))
 
         # --- Optional enrichment from CWS / AMO ---
-        store_enrichment: dict = {}
+        store_enrichment: dict[str, Any] = {}
         if platform.lower() in {"chrome", "chromium", "edge", "brave"}:
             cws = ChromeWebStoreApiProvider()
             try:
@@ -206,14 +213,14 @@ class ExtensionRiskService(BaseModuleService):
             severity=severity.value,
             signals_emitted=len(signals),
         )
-        return signals
+        return ModuleOutcome(signals=signals)
 
     async def _run_device_scan_path(
         self,
         user_id: uuid.UUID,
         asset_id: uuid.UUID,
         asset_value: str,
-    ) -> list[SignalCreate]:
+    ) -> ModuleOutcome:
         """Local extension scan path for DEVICE assets.
 
         1. Enumerates installed browser extensions via filesystem scan.
@@ -224,7 +231,7 @@ class ExtensionRiskService(BaseModuleService):
 
         # --- Step 1: enumerate installed extensions ---
         detector = BrowserExtensionDetectorProvider()
-        installed: list[dict] = []
+        installed: list[dict[str, Any]] = []
         try:
             installed = await detector.scan()
         except ProviderError as e:
@@ -239,7 +246,7 @@ class ExtensionRiskService(BaseModuleService):
                 "extension_risk.device_scan_no_extensions",
                 asset_id=str(asset_id),
             )
-            return signals
+            return ModuleOutcome(signals=signals)
 
         # Only check Chromium-based extension IDs — MaliciousExtensionSentry only
         # covers Chrome/Edge; Firefox uses different ID schemes.
@@ -256,10 +263,10 @@ class ExtensionRiskService(BaseModuleService):
                 asset_id=str(asset_id),
                 total_installed=len(installed),
             )
-            return signals
+            return ModuleOutcome(signals=signals)
 
         # Build a lookup map for enriching hits with name/version from inventory
-        inventory_map: dict[str, dict] = {}
+        inventory_map: dict[str, dict[str, Any]] = {}
         for ext in installed:
             eid = ext.get("extension_id", "")
             if eid and eid not in inventory_map:
@@ -267,7 +274,7 @@ class ExtensionRiskService(BaseModuleService):
 
         # --- Step 2: check against malicious extension database ---
         sentry = MaliciousExtensionSentryProvider()
-        hits: list[dict] = []
+        hits: list[dict[str, Any]] = []
         try:
             hits = await sentry.check_extensions(chromium_ids)
         except ProviderError as e:
@@ -349,4 +356,4 @@ class ExtensionRiskService(BaseModuleService):
             malicious_found=len(hits),
             signals_emitted=len(signals),
         )
-        return signals
+        return ModuleOutcome(signals=signals)

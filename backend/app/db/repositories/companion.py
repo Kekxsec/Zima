@@ -76,7 +76,7 @@ class CompanionRepository:
         self,
         user_id: uuid.UUID,
         session_id: uuid.UUID,
-        raw: dict,
+        raw: dict[str, object],
     ) -> BrowserSnapshot:
         """Append a new snapshot. Caller must commit."""
         snapshot = BrowserSnapshot(

@@ -1,0 +1,8 @@
+filters:
+  or:
+    - file.path.contains("Companion/")
+    - file.path.contains("MVP Build/email-account-identifier/")
+    - file.path == "Research/signal-registry.md"
+views:
+  - type: table
+    name: Meaningful Orphans

@@ -78,7 +78,7 @@ async def check_redis() -> None:
         client: aioredis.Redis = aioredis.from_url(
             settings.redis_url, socket_connect_timeout=3
         )
-        await client.ping()
+        await client.ping()  # type: ignore[misc]
         await client.aclose()
         logger.info("startup.redis_ok")
     except Exception as exc:

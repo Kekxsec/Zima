@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from backend.app.core.config import settings
 from backend.app.core.enums import Confidence, EntityType, Severity
 from backend.app.core.logging import get_logger
+from backend.app.modules.base.outcome import ModuleOutcome
 from backend.app.modules.base.service import BaseModuleService
 from backend.app.providers.base.runner import run_provider
 from backend.app.providers.reputation.emailrep.client import EmailrepProvider
@@ -41,7 +42,7 @@ class EmailReputationService(BaseModuleService):
         asset_id: uuid.UUID,
         asset_value: str,
         ctx: ScanExecutionContext | None = None,
-    ) -> list[SignalCreate]:
+    ) -> ModuleOutcome:
         signals: list[SignalCreate] = []
 
         # ── EmailRep ────────────────────────────────────────────────────────
@@ -152,4 +153,4 @@ class EmailReputationService(BaseModuleService):
             user_id=str(user_id),
             signals_emitted=len(signals),
         )
-        return signals
+        return ModuleOutcome(signals=signals)

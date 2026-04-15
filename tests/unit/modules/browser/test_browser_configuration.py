@@ -128,14 +128,14 @@ async def test_run_emits_safe_browsing_signal() -> None:
             return_value=[],
         ),
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=USER_ID,
             asset_id=ASSET_ID,
             asset_value="",
         )
 
-    assert len(signals) == 1
-    s = signals[0]
+    assert len(outcome.signals) == 1
+    s = outcome.signals[0]
     assert s.signal_type == "safe_browsing_disabled"
     assert s.severity == Severity.HIGH
     assert s.entity_type == EntityType.DEVICE
@@ -164,14 +164,14 @@ async def test_run_emits_firefox_flat_policy_signal() -> None:
             return_value=firefox_policies,
         ),
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=USER_ID,
             asset_id=ASSET_ID,
             asset_value="",
         )
 
-    assert len(signals) == 1
-    s = signals[0]
+    assert len(outcome.signals) == 1
+    s = outcome.signals[0]
     assert s.signal_type == "browser_update_disabled"
     assert s.severity == Severity.MEDIUM
     assert s.provider == "firefox_enterprise_policies"
@@ -198,14 +198,14 @@ async def test_run_emits_firefox_nested_doh_signal() -> None:
             return_value=firefox_policies,
         ),
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=USER_ID,
             asset_id=ASSET_ID,
             asset_value="",
         )
 
-    assert len(signals) == 1
-    s = signals[0]
+    assert len(outcome.signals) == 1
+    s = outcome.signals[0]
     assert s.signal_type == "dns_over_https_disabled"
     assert s.evidence["sub_key"] == "Enabled"
     assert s.evidence["policy_key"] == "DNSOverHTTPS"
@@ -234,13 +234,13 @@ async def test_run_skips_policies_that_do_not_trigger() -> None:
             ],
         ),
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=USER_ID,
             asset_id=ASSET_ID,
             asset_value="",
         )
 
-    assert signals == []
+    assert outcome.signals == []
 
 
 @pytest.mark.asyncio
@@ -256,13 +256,13 @@ async def test_run_graceful_on_chrome_provider_failure() -> None:
             return_value=[],
         ),
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=USER_ID,
             asset_id=ASSET_ID,
             asset_value="",
         )
 
-    assert signals == []
+    assert outcome.signals == []
 
 
 @pytest.mark.asyncio
@@ -291,14 +291,14 @@ async def test_run_emits_multiple_signals_from_both_browsers() -> None:
             ],
         ),
     ):
-        signals = await service.run(
+        outcome = await service.run(
             user_id=USER_ID,
             asset_id=ASSET_ID,
             asset_value="",
         )
 
-    assert len(signals) == 3
-    signal_types = {s.signal_type for s in signals}
+    assert len(outcome.signals) == 3
+    signal_types = {s.signal_type for s in outcome.signals}
     assert "safe_browsing_disabled" in signal_types
     assert "third_party_cookies_allowed" in signal_types
     assert "browser_update_disabled" in signal_types

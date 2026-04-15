@@ -169,7 +169,7 @@ async def verify_integration(
     except ProviderError as exc:
         return {
             "valid": False,
-            "detail": f"Provider request failed: {exc.message}",
+            "detail": f"Provider request failed: {exc}",
         }
 
     return {"valid": True, "detail": "API key is valid."}
@@ -205,7 +205,7 @@ async def list_simplelogin_mailboxes(
     except ProviderError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"SimpleLogin request failed: {exc.message}",
+            detail=f"SimpleLogin request failed: {exc}",
         ) from exc
 
     return {"mailboxes": mailboxes}
@@ -239,7 +239,7 @@ async def get_addy_io_account(
     except ProviderError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Addy.io request failed: {exc.message}",
+            detail=f"Addy.io request failed: {exc}",
         ) from exc
 
     return {"account": details}

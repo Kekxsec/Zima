@@ -45,4 +45,4 @@ def configure_logging() -> None:
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:
     """Get a named logger instance."""
-    return structlog.get_logger(name)  # type: ignore[no-any-return]  # structlog typing incomplete
+    return structlog.get_logger(name)  # type: ignore[no-any-return]

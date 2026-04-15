@@ -2,16 +2,20 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from backend.app.core.enums import Confidence, EntityType, Severity
 from backend.app.core.logging import get_logger
+from backend.app.modules.base.outcome import ModuleOutcome
 from backend.app.modules.base.service import BaseModuleService
 from backend.app.providers.base.exceptions import ProviderError
 from backend.app.providers.tools.lynis.client import LynisProvider
 from backend.app.providers.tools.macos_native.client import MacOsNativeProvider
 from backend.app.providers.tools.osquery.client import OsqueryProvider
 from backend.app.signals.schemas import SignalCreate
+
+if TYPE_CHECKING:
+    from backend.app.jobs.context import ScanExecutionContext
 
 logger = get_logger(__name__)
 
@@ -53,14 +57,14 @@ class OsSecurityService(BaseModuleService):
         user_id: uuid.UUID,
         asset_id: uuid.UUID,
         asset_value: str,
-        ctx: object = None,
-    ) -> list[SignalCreate]:
+        ctx: ScanExecutionContext | None = None,
+    ) -> ModuleOutcome:
         signals: list[SignalCreate] = []
 
         # --- osquery: OS version + kernel ---
         osq = OsqueryProvider()
-        os_rows: list[dict] = []
-        kernel_rows: list[dict] = []
+        os_rows: list[dict[str, Any]] = []
+        kernel_rows: list[dict[str, Any]] = []
         try:
             os_rows = await osq.query_named("os_version")
             kernel_rows = await osq.query_named("kernel_info")
@@ -274,4 +278,4 @@ class OsSecurityService(BaseModuleService):
             asset_id=str(asset_id),
             signals_emitted=len(signals),
         )
-        return signals
+        return ModuleOutcome(signals=signals)

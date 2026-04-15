@@ -86,7 +86,7 @@ class AuthToken(Base):
 
     @property
     def is_expired(self) -> bool:
-        return datetime.now(UTC) > self.expires_at
+        return bool(datetime.now(UTC) > self.expires_at)
 
     @property
     def is_used(self) -> bool:

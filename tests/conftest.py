@@ -28,11 +28,20 @@ def flush_rate_limit_keys() -> None:
     """
     Delete all slowapi rate-limit keys for the test client IP (127.0.0.1)
     before the test session begins. Prevents counter bleed between runs.
+    Local integration and API tests expect Redis from docker-compose.yml and
+    APP_ENV=testing from .env.test.
     """
-    r = redis_sync.from_url(settings.redis_url)
-    for key in r.scan_iter("*127.0.0.1*"):
-        r.delete(key)
-    r.close()
+    try:
+        r = redis_sync.from_url(settings.redis_url)
+        for key in r.scan_iter("*127.0.0.1*"):
+            r.delete(key)
+        r.close()
+    except redis_sync.RedisError as exc:
+        raise RuntimeError(
+            "Redis is required for the default pytest fixtures. "
+            "Start services with `docker compose up -d --force-recreate postgres redis`, "
+            "then load `.env.test` so APP_ENV=testing and REDIS_URL point at the local test stack."
+        ) from exc
 
 
 # ─── Engine ───────────────────────────────────────────────────────────────────
@@ -47,7 +56,7 @@ async def test_engine() -> AsyncGenerator[AsyncEngine, None]:
     """
     assert settings.is_testing, (
         "Tests must run with APP_ENV=testing. "
-        "Set this in the CI environment or your local .env.test file."
+        "Set this in the CI environment or load your local .env.test file before running pytest."
     )
     engine = create_async_engine(settings.database_url, echo=False)
     async with engine.begin() as conn:
@@ -201,6 +210,11 @@ def mock_hibp_no_breaches(respx_mock):  # type: ignore[no-untyped-def]
     respx_mock.get(
         url__regex=r"https://haveibeenpwned\.com/api/v3/breachedaccount/.*"
     ).mock(return_value=httpx.Response(404))
+    respx_mock.get(url__regex=r"https://leakcheck\.io/api/public\?check=.*").mock(
+        return_value=httpx.Response(
+            200, json={"success": True, "found": 0, "sources": []}
+        )
+    )
     with patch(
         "backend.app.modules.identity.breach_monitor.service.settings"
     ) as mock_settings:
@@ -208,6 +222,7 @@ def mock_hibp_no_breaches(respx_mock):  # type: ignore[no-untyped-def]
         mock_settings.dehashed_email = None
         mock_settings.dehashed_api_key = None
         mock_settings.breachdirectory_rapidapi_key = None
+        mock_settings.leakcheck_api_key = None
         yield respx_mock
     return
 
@@ -264,6 +279,11 @@ def mock_hibp_with_breaches(respx_mock):  # type: ignore[no-untyped-def]
             ).encode(),
         )
     )
+    respx_mock.get(url__regex=r"https://leakcheck\.io/api/public\?check=.*").mock(
+        return_value=httpx.Response(
+            200, json={"success": True, "found": 0, "sources": []}
+        )
+    )
     with patch(
         "backend.app.modules.identity.breach_monitor.service.settings"
     ) as mock_settings:
@@ -271,6 +291,7 @@ def mock_hibp_with_breaches(respx_mock):  # type: ignore[no-untyped-def]
         mock_settings.dehashed_email = None
         mock_settings.dehashed_api_key = None
         mock_settings.breachdirectory_rapidapi_key = None
+        mock_settings.leakcheck_api_key = None
         yield respx_mock
     return
 

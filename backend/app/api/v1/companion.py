@@ -55,7 +55,7 @@ class RegisterResponse(BaseModel):
 
 
 class SnapshotRequest(BaseModel):
-    raw_snapshot: dict
+    raw_snapshot: dict[str, object]
 
 
 class CompanionStatusResponse(BaseModel):
@@ -145,6 +145,7 @@ async def register_companion(
     companion_token = create_companion_token(
         user_id=str(body.user_id),
         session_id=str(session.id),
+        jti=jti,
         expire_days=settings.companion_token_expire_days,
     )
 
@@ -208,9 +209,16 @@ async def get_companion_status(
     snapshot = await companion_repo.get_latest_snapshot(current_user.id)
     extension_count = 0
     if snapshot is not None:
-        browsers: list[dict] = snapshot.raw_snapshot.get("browsers", [])
+        raw: dict[str, object] = snapshot.raw_snapshot or {}
+        browsers_raw = raw.get("browsers")
+        browsers: list[dict[str, object]] = (
+            browsers_raw if isinstance(browsers_raw, list) else []
+        )
         for browser in browsers:
-            extensions: list[dict] = browser.get("extensions", [])
+            exts_raw = browser.get("extensions")
+            extensions: list[dict[str, object]] = (
+                exts_raw if isinstance(exts_raw, list) else []
+            )
             extension_count += len(extensions)
 
     return CompanionStatusResponse(
