@@ -1,8 +1,8 @@
 # backend/app/db/repositories/mbox_uploads.py
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.db.models.email_accounts import MboxUpload, MboxUploadStatus
@@ -51,11 +51,13 @@ class MboxUploadRepository:
         return result.scalar_one_or_none()
 
     async def set_processing(self, upload_id: uuid.UUID) -> None:
-        await self.session.execute(
+        result = await self.session.execute(
             update(MboxUpload)
             .where(MboxUpload.id == upload_id)
             .values(status=MboxUploadStatus.PROCESSING)
         )
+        if result.rowcount == 0:
+            raise ValueError(f"Mbox upload {upload_id} not found.")
 
     async def set_completed(
         self,
@@ -63,7 +65,7 @@ class MboxUploadRepository:
         accounts_discovered: int,
         signals_created: int,
     ) -> None:
-        await self.session.execute(
+        result = await self.session.execute(
             update(MboxUpload)
             .where(MboxUpload.id == upload_id)
             .values(
@@ -73,9 +75,11 @@ class MboxUploadRepository:
                 processed_at=datetime.now(UTC),
             )
         )
+        if result.rowcount == 0:
+            raise ValueError(f"Mbox upload {upload_id} not found.")
 
     async def set_failed(self, upload_id: uuid.UUID, error_detail: str) -> None:
-        await self.session.execute(
+        result = await self.session.execute(
             update(MboxUpload)
             .where(MboxUpload.id == upload_id)
             .values(
@@ -84,6 +88,8 @@ class MboxUploadRepository:
                 processed_at=datetime.now(UTC),
             )
         )
+        if result.rowcount == 0:
+            raise ValueError(f"Mbox upload {upload_id} not found.")
 
     async def list_for_user(
         self,
@@ -99,6 +105,20 @@ class MboxUploadRepository:
             .offset(offset)
         )
         return list(result.scalars().all())
+
+    async def count_recent(self, user_id: uuid.UUID, hours: int = 1) -> int:
+        """Count uploads created by a user in the last N hours (for rate-limiting)."""
+        since = datetime.now(UTC) - timedelta(hours=hours)
+        result = await self.session.execute(
+            select(func.count()).where(
+                MboxUpload.user_id == user_id,
+                MboxUpload.created_at >= since,
+            )
+        )
+        return result.scalar_one()
+
+    async def delete_by_id(self, upload_id: uuid.UUID) -> None:
+        await self.session.execute(delete(MboxUpload).where(MboxUpload.id == upload_id))
 
     async def delete_all_for_user(self, user_id: uuid.UUID) -> None:
         """Hard-deletes all mbox upload records for a user. Used by GDPR erasure."""

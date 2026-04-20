@@ -8,6 +8,40 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.db.models.email_accounts import NewsletterSubscription
 
+_MAX_SENDER_DOMAIN_LEN = 255
+_MAX_SENDER_NAME_LEN = 255
+_MAX_UNSUBSCRIBE_URL_LEN = 1024
+_MAX_LIST_ID_LEN = 512
+_MAX_CONFIDENCE_LEN = 20
+
+
+def _sanitize_required(value: str, max_len: int, fallback: str) -> str:
+    cleaned = value.strip()
+    if not cleaned:
+        cleaned = fallback
+    return cleaned[:max_len]
+
+
+def _sanitize_optional(value: str | None, max_len: int) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    return cleaned[:max_len]
+
+
+def _sanitize_optional_url(value: str | None, max_len: int) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    # For untrusted URL-like fields, avoid storing truncated broken links.
+    if len(cleaned) > max_len:
+        return None
+    return cleaned
+
 
 class NewsletterSubscriptionRepository:
     def __init__(self, session: AsyncSession) -> None:
@@ -33,19 +67,29 @@ class NewsletterSubscriptionRepository:
         extends first/last_seen_at, updates unsubscribe_url and list_id.
         If is_phishing=True, latches the flag on (never reverts to False).
         """
+        safe_sender_domain = _sanitize_required(
+            sender_domain.lower(), _MAX_SENDER_DOMAIN_LEN, "unknown.local"
+        )
+        safe_sender_name = _sanitize_optional(sender_name, _MAX_SENDER_NAME_LEN)
+        safe_unsubscribe_url = _sanitize_optional_url(
+            unsubscribe_url, _MAX_UNSUBSCRIBE_URL_LEN
+        )
+        safe_list_id = _sanitize_optional(list_id, _MAX_LIST_ID_LEN)
+        safe_confidence = _sanitize_required(confidence, _MAX_CONFIDENCE_LEN, "high")
+
         stmt = (
             insert(NewsletterSubscription)
             .values(
                 user_id=user_id,
                 upload_id=upload_id,
-                sender_domain=sender_domain,
-                sender_name=sender_name,
+                sender_domain=safe_sender_domain,
+                sender_name=safe_sender_name,
                 message_count=message_count,
                 first_seen_at=first_seen_at,
                 last_seen_at=last_seen_at,
-                unsubscribe_url=unsubscribe_url,
-                list_id=list_id,
-                confidence=confidence,
+                unsubscribe_url=safe_unsubscribe_url,
+                list_id=safe_list_id,
+                confidence=safe_confidence,
                 is_phishing=is_phishing,
             )
             .on_conflict_do_update(
@@ -54,9 +98,9 @@ class NewsletterSubscriptionRepository:
                     "message_count": NewsletterSubscription.message_count
                     + message_count,
                     "last_seen_at": last_seen_at,
-                    "unsubscribe_url": unsubscribe_url,
-                    "list_id": list_id,
-                    "sender_name": sender_name,
+                    "unsubscribe_url": safe_unsubscribe_url,
+                    "list_id": safe_list_id,
+                    "sender_name": safe_sender_name,
                     # Latch: once phishing, always phishing — never clear on re-upsert
                     "is_phishing": NewsletterSubscription.is_phishing | is_phishing,
                 },

@@ -137,7 +137,7 @@ export default function PrivacyPage() {
       <Section title="9. Contact">
         <p>
           For privacy-related questions or requests, contact us at{" "}
-          <span className="text-sky-400">privacy@zima.app</span>.
+          <span className="text-violet-400">privacy@zima.app</span>.
         </p>
       </Section>
     </div>

@@ -28,3 +28,11 @@ class ParsedEmail(BaseModel):
     reply_to: str | None = None
     mime_type: str | None = None
     message_size_bytes: int | None = None
+    # Bulk/automated sender signals
+    x_feedback_id: str | None = None  # Gmail promotional tab marker
+    auto_submitted: str | None = None  # RFC 3834 — "auto-generated" / "auto-replied"
+    x_mailer: str | None = None  # Bulk mailer fingerprint
+    # Alias-service forwarding headers — set by services like SimpleLogin / AnonAddy
+    # when they rewrite the From header before forwarding to the real inbox.
+    x_original_from: str | None = None  # X-Original-From / X-Forwarded-From
+    x_forwarded_to: str | None = None  # X-Forwarded-To (original To before rewrite)

@@ -2,7 +2,7 @@
 tags: [zima, moc, project]
 aliases: [Zima Home, Zima MOC]
 created: 2026-03-21
-updated: 2026-04-15
+updated: 2026-04-17
 verified: 2026-04-15
 
 ---
@@ -38,8 +38,9 @@ verified: 2026-04-15
 | 15 | Infrastructure Providers | ✅ Complete (2026-04-15) — LeakIX + Frankenstein schemas/mappers added |
 | 16 | Integration Wiring & Cleanup | ✅ Complete (2026-04-15) — epieos removed, ProviderFinding audit clean, orchestrator policy gate added, e2e pillar tests passing |
 | 17 | Zima Companion (Rust binary, Phase 1) | ✅ Complete |
+| AI | Ollama Local AI Provider | ✅ Complete (2026-04-17) — mapper, client methods, status endpoint, 26 tests passing |
 
-**Next active work:** Stage 08 deploy-time hardening, plus frontend PM export/remediation polish
+**Next active work:** Ollama provider completion (mapper, health_check, list_models, structured_query) + status endpoint + tests. Then Stage 08 deploy-time hardening.
 
 ---
 

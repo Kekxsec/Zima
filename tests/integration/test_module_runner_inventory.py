@@ -70,6 +70,42 @@ class FakeInventoryModule(BaseModuleService):
         )
 
 
+class FakeUnsupportedInventoryModule(BaseModuleService):
+    module_name = "fake_unsupported_inventory"
+    module_domain = "identity"
+    required_entity_types = [EntityType.EMAIL]
+
+    async def run(
+        self,
+        user_id: uuid.UUID,
+        asset_id: uuid.UUID,
+        asset_value: str,
+        ctx: object = None,
+    ) -> ModuleOutcome:
+        account_signal = SignalCreate(
+            signal_type="account_discovered",
+            category="identity_inventory",
+            entity_type=EntityType.EMAIL,
+            entity_id=asset_id,
+            entity_value=asset_value,
+            user_id=user_id,
+            severity=Severity.INFO,
+            confidence=Confidence.MEDIUM,
+            source="account_inventory",
+            provider="tool_whatsmyname",
+            summary="Account found on ExampleSite via username",
+            details=None,
+            evidence={
+                "platform": "ExampleSite",
+                "profile_url": "https://example.com/maximus.baldwin",
+            },
+            tags=["account_discovered"],
+            recommended_action=None,
+            source_ref="whatsmyname:examplesite",
+        )
+        return ModuleOutcome(account_signals=[account_signal])
+
+
 @pytest.mark.asyncio
 async def test_runner_persists_scan_inventory_as_accounts_not_signals(
     db_session: AsyncSession,
@@ -105,3 +141,37 @@ async def test_runner_persists_scan_inventory_as_accounts_not_signals(
     assert accounts[0].source_type == "holehe"
     assert len(signals) == 1
     assert signals[0].signal_type == "email_breached"
+
+
+@pytest.mark.asyncio
+async def test_runner_skips_unsupported_scan_inventory_providers(
+    db_session: AsyncSession,
+) -> None:
+    user = UserFactory.build(tier="plus")
+    db_session.add(user)
+    asset = AssetFactory.build(
+        user_id=user.id,
+        entity_type="email",
+        value="inventory@example.com",
+        is_verified=True,
+        is_primary=True,
+    )
+    db_session.add(asset)
+    await db_session.commit()
+
+    runner = ModuleRunner(
+        asset_repo=AssetRepository(db_session),
+        signal_repo=SignalRepository(db_session),
+        account_repo=DiscoveredAccountRepository(db_session),
+        service_registry_repo=ServiceRegistryRepository(db_session),
+    )
+
+    count = await runner._run_module(FakeUnsupportedInventoryModule(), user.id)
+    await db_session.commit()
+
+    accounts = await DiscoveredAccountRepository(db_session).list_for_user(user.id)
+    signals = await SignalRepository(db_session).get_open_for_user(user.id)
+
+    assert count == 0
+    assert accounts == []
+    assert signals == []

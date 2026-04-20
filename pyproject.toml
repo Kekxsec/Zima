@@ -50,7 +50,7 @@ line-length = 88
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "ANN", "S", "B", "A", "C4", "T20"]
-ignore = []
+ignore = ["ANN101", "ANN102"]
 
 [tool.ruff.lint.per-file-ignores]
 "backend/app/api/dependencies.py" = ["B008"]
@@ -64,8 +64,9 @@ ignore = []
 # E501/ANN204/ANN401: HTTP client methods have long signatures and JSON returns Any.
 # E402/C408: import layout and dict literals fixed in Stage 4.
 "backend/app/providers/**/*.py" = ["E501", "ANN204", "ANN202", "ANN401", "E402", "C408", "C401", "B020", "S104", "S110", "S112", "S324", "S603"]
+"backend/app/email_accounts/*.py" = ["E501"]
 # Tests: assert is the correct pattern (S101), annotations not required (ANN), E501 for long docstrings
-"tests/**/*.py" = ["S101", "ANN", "E501"]
+"tests/**/*.py" = ["S101", "ANN", "E501", "S105", "S106"]
 
 [tool.mypy]
 python_version = "3.12"

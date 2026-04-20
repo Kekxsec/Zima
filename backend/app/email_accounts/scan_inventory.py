@@ -4,15 +4,22 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
 
+from backend.app.core.logging import get_logger
 from backend.app.db.models.email_accounts import DiscoveredAccountSourceType
 from backend.app.db.repositories.service_registry import ServiceRegistryRepository
 from backend.app.signals.schemas import SignalCreate
 
 SCAN_DISCOVERY_UPLOAD_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+logger = get_logger(__name__)
 
 _PROVIDER_TO_SOURCE_TYPE = {
     "tool_holehe": DiscoveredAccountSourceType.HOLEHE,
     "tool_maigret": DiscoveredAccountSourceType.MAIGRET,
+}
+
+_SOURCE_TYPE_CONFIDENCE = {
+    DiscoveredAccountSourceType.HOLEHE: 70,
+    DiscoveredAccountSourceType.MAIGRET: 60,
 }
 
 
@@ -20,6 +27,15 @@ async def build_account_upsert_payload(
     signal: SignalCreate,
     service_registry_repo: ServiceRegistryRepository,
 ) -> dict[str, Any] | None:
+    source_type = _PROVIDER_TO_SOURCE_TYPE.get(signal.provider)
+    if source_type is None:
+        logger.info(
+            "scan_inventory.unsupported_provider_skipped",
+            provider=signal.provider,
+            source_ref=signal.source_ref,
+        )
+        return None
+
     evidence = signal.evidence if isinstance(signal.evidence, dict) else {}
     platform = str(evidence.get("platform", "") or "").strip()
     if not platform:
@@ -69,15 +85,14 @@ async def build_account_upsert_payload(
         "service_name": service_name,
         "display_name": display_name,
         "email_used": signal.entity_value,
-        "source_type": _PROVIDER_TO_SOURCE_TYPE.get(
-            signal.provider, DiscoveredAccountSourceType.OTHER
-        ),
+        "source_type": source_type,
         "sender_domain": sender_domain,
         "login_url": login_url,
         "password_reset_url": password_reset_url,
         "first_seen_at": observed_at,
         "last_seen_at": observed_at,
         "email_count": 1,
+        "confidence_score": _SOURCE_TYPE_CONFIDENCE.get(source_type, 0),
         "increment_email_count": False,
     }
 

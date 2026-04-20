@@ -178,6 +178,8 @@
   },
   "active": "653371cdbaec749c",
   "lastOpenFiles": [
+    "Architecture/CLAUDE-CODE-BRIEFING.md",
+    "Architecture/Design Principles.md",
     "MVP Build/codex-execution-plan.md",
     "Zima.md",
     "Research/Providers/breach/hibp/output.md",
@@ -193,8 +195,6 @@
     "Bases/broken-link-notes.base",
     "Bases",
     "Architecture/section-01-overview.md",
-    "Architecture/Design Principles.md",
-    "Architecture/CLAUDE-CODE-BRIEFING.md",
     "Research/Providers/social/serus/prompt.md"
   ]
 }

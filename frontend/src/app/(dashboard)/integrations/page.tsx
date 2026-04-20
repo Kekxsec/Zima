@@ -129,7 +129,7 @@ function ConnectDialog({
               href={meta.docsUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-sky-500 hover:text-sky-400"
+              className="inline-flex items-center gap-1 text-xs text-primary/80 hover:text-primary"
             >
               How to get your API key <ExternalLink className="h-3 w-3" />
             </a>
@@ -313,7 +313,6 @@ export default function IntegrationsPage() {
   })
 
   const integrations = data?.integrations ?? []
-  const connectedCount = integrations.filter((integration) => integration.connected).length
 
   return (
     <div className="space-y-5">

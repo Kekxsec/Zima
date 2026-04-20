@@ -28,6 +28,9 @@ _HEADER_SCORE = 30
 _SENDER_SCORE = 20
 _SUBJECT_SCORE = 15
 _UNSUBSCRIBE_SCORE = 25
+_AUTO_SUBMITTED_SCORE = 20  # RFC 3834 auto-generated header
+_FEEDBACK_ID_SCORE = 15  # Gmail promotional tab signal
+_BULK_MAILER_SCORE = 10  # Known bulk X-Mailer fingerprint
 _NEWSLETTER_THRESHOLD = 70
 
 # ---------------------------------------------------------------------------
@@ -100,6 +103,13 @@ _SENDER_PATTERN_RE = re.compile(
 
 _BULK_PRECEDENCE_RE = re.compile(r"\b(bulk|list|junk)\b", re.IGNORECASE)
 
+_BULK_MAILER_RE = re.compile(
+    r"(mailchimp|sendgrid|klaviyo|hubspot|marketo|pardot|eloqua|"
+    r"campaign.monitor|constant.contact|brevo|sendinblue|drip|"
+    r"convertkit|active.campaign|iterable|sailthru)",
+    re.IGNORECASE,
+)
+
 
 def _is_esp_domain(domain: str | None) -> bool:
     if not domain:
@@ -151,6 +161,12 @@ def score_newsletter_email(msg: ParsedEmail) -> int:
         score += _SUBJECT_SCORE
     if msg.list_unsubscribe:
         score += _UNSUBSCRIBE_SCORE
+    if msg.auto_submitted and msg.auto_submitted.startswith("auto"):
+        score += _AUTO_SUBMITTED_SCORE
+    if msg.x_feedback_id:
+        score += _FEEDBACK_ID_SCORE
+    if msg.x_mailer and _BULK_MAILER_RE.search(msg.x_mailer):
+        score += _BULK_MAILER_SCORE
     return min(score, 100)
 
 

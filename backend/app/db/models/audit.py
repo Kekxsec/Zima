@@ -37,6 +37,11 @@ class AuditEventType:
     FINDING_REOPENED = "finding.reopened"
     SIGNAL_SUPPRESSED = "signal.suppressed"
 
+    # Browser extension
+    EXTENSION_SETUP_TOKEN_ISSUED = "extension.setup_token_issued"  # noqa: S105
+    EXTENSION_REGISTER_SUCCEEDED = "extension.register_succeeded"  # noqa: S105
+    EXTENSION_REGISTER_FAILED = "extension.register_failed"  # noqa: S105
+
 
 class AuditEvent(Base):
     """

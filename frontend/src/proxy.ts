@@ -11,6 +11,7 @@ const PROTECTED_PREFIXES = [
   "/accounts",
   "/account",
   "/onboarding",
+  "/connect-extension",
 ]
 
 /** Only allow relative same-origin redirects — rejects external URLs */

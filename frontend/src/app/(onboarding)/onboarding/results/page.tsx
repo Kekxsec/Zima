@@ -14,7 +14,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { SeverityBadge } from "@/components/ui/SeverityBadge"
 import { OnboardingStepper } from "@/components/onboarding/OnboardingStepper"
-import { useOnboardingStore } from "@/lib/store/onboarding"
 import { api } from "@/lib/api/client"
 import type { ScoreListResponse, FindingListResponse, ScanListResponse } from "@/types/api"
 
@@ -23,11 +22,12 @@ const STEPS = [
   { label: "Your Identity" },
   { label: "First Scan" },
   { label: "Results" },
+  { label: "Import & Enrich" },
 ]
 
 function scoreGrade(score: number) {
   if (score >= 80) return { label: "Good", color: "text-emerald-400", ring: "#34d399" }
-  if (score >= 60) return { label: "Fair", color: "text-sky-400", ring: "#38bdf8" }
+  if (score >= 60) return { label: "Fair", color: "text-violet-400", ring: "#a78bfa" }
   if (score >= 40) return { label: "At Risk", color: "text-amber-400", ring: "#fbbf24" }
   return { label: "Critical", color: "text-red-400", ring: "#f87171" }
 }
@@ -71,7 +71,6 @@ function dedupeBreaches(findings: FindingListResponse["findings"]) {
 
 export default function ResultsPage() {
   const router = useRouter()
-  const setCompleted = useOnboardingStore((s) => s.setCompleted)
 
   const { data: scoreData, isLoading: scoreLoading } = useQuery({
     queryKey: ["onboarding-scores"],
@@ -102,8 +101,7 @@ export default function ResultsPage() {
   const openSignals = findingData?.signals_open ?? 0
 
   function handleDone() {
-    setCompleted(true)
-    router.push("/accounts?from=onboarding")
+    router.push("/onboarding/import")
   }
 
   return (
@@ -117,8 +115,9 @@ export default function ResultsPage() {
         <div className="text-center mb-8">
           <h1 className="text-2xl font-bold text-white mb-2">Your advisor has your first results</h1>
           <p className="text-slate-400 text-sm">
-            Your first scan is finished. Start with the issues already tied to exposed services,
-            then bring in your inbox export so Zima can uncover more of your real account footprint.
+            Your first scan is finished. These are the issues Zima can already tie to verified assets.
+            The next onboarding step brings in mailbox or vault evidence so the account map is based on your
+            real footprint instead of guesswork.
           </p>
         </div>
 
@@ -207,11 +206,11 @@ export default function ResultsPage() {
           <div className="space-y-3">
             <JourneyStep
               icon={<Mailbox className="w-4 h-4 text-violet-400" />}
-              title="1. Upload your inbox export"
-              description="Bring in an .mbox export from Gmail, Outlook, or Apple Mail so Zima can identify registrations, password resets, and confirmation emails tied to your identity."
+              title="1. Bring in account evidence"
+              description="Upload an .mbox export or supported vault export so Zima can identify registrations, password resets, and the services you actually use."
             />
             <JourneyStep
-              icon={<Search className="w-4 h-4 text-sky-400" />}
+              icon={<Search className="w-4 h-4 text-violet-400" />}
               title="2. Review discovered accounts"
               description="We’ll turn those inbox clues into a cleaner account inventory so you can spot forgotten services and old login surfaces."
             />
@@ -242,10 +241,29 @@ export default function ResultsPage() {
           </div>
         </div>
 
+        <div className="bg-slate-800/40 border border-slate-700/50 rounded-xl p-4 mb-8">
+          <div className="flex items-start gap-3">
+            <div className="shrink-0 flex items-center justify-center w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 mt-0.5">
+              <Search className="w-4 h-4 text-amber-300" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-white mb-1">
+                Why you are not seeing the full account picture yet
+              </h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                The first scan can only work from verified assets and public evidence. We delay the full
+                account-level view until the next step because that is where mailbox or vault evidence tells us
+                which services are actually yours. Without that extra context, the dashboard would look complete
+                when it is still missing part of the map.
+              </p>
+            </div>
+          </div>
+        </div>
+
         {/* CTA */}
         <div className="flex justify-center">
           <Button size="lg" className="gap-2 px-10" onClick={handleDone}>
-            Continue with inbox upload <ArrowRight className="w-4 h-4" />
+            Continue with guided import <ArrowRight className="w-4 h-4" />
           </Button>
         </div>
       </div>

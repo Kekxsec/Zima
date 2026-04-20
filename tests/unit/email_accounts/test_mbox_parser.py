@@ -1,12 +1,58 @@
 # tests/unit/email_accounts/test_mbox_parser.py
 """Unit tests for the mbox parser provider."""
 
+import json
 from pathlib import Path
 
 from backend.app.providers.tools.mbox_parser.client import (
     MboxParserProvider,
+    _parse_list_unsubscribe,
     _split_mbox,
 )
+
+# ---------------------------------------------------------------------------
+# _parse_list_unsubscribe
+# ---------------------------------------------------------------------------
+
+
+class TestParseListUnsubscribe:
+    def test_https_only(self) -> None:
+        assert (
+            _parse_list_unsubscribe("<https://example.com/unsub>")
+            == "https://example.com/unsub"
+        )
+
+    def test_mailto_only(self) -> None:
+        assert (
+            _parse_list_unsubscribe("<mailto:unsub@example.com>")
+            == "mailto:unsub@example.com"
+        )
+
+    def test_both_prefers_https(self) -> None:
+        raw = "<mailto:unsub@example.com>, <https://example.com/unsub>"
+        assert _parse_list_unsubscribe(raw) == "https://example.com/unsub"
+
+    def test_https_listed_first(self) -> None:
+        raw = "<https://example.com/unsub>, <mailto:unsub@example.com>"
+        assert _parse_list_unsubscribe(raw) == "https://example.com/unsub"
+
+    def test_http_fallback(self) -> None:
+        assert (
+            _parse_list_unsubscribe("<http://example.com/unsub>")
+            == "http://example.com/unsub"
+        )
+
+    def test_none_input(self) -> None:
+        assert _parse_list_unsubscribe(None) is None
+
+    def test_empty_string(self) -> None:
+        assert _parse_list_unsubscribe("") is None
+
+    def test_malformed_no_recognisable_scheme(self) -> None:
+        assert _parse_list_unsubscribe("<not-a-url>") is None
+
+    def test_whitespace_only(self) -> None:
+        assert _parse_list_unsubscribe("   ,  ") is None
 
 
 def _make_mbox(*messages: tuple[str, str, str]) -> bytes:
@@ -22,6 +68,34 @@ def _make_mbox(*messages: tuple[str, str, str]) -> bytes:
         lines.append(b"\n")
         lines.append(b"Body line.\n\n")
     return b"".join(lines)
+
+
+def _write_proton_export_dir(
+    root: Path,
+    *messages: tuple[str, str, str],
+) -> Path:
+    """Write a minimal Proton Mail export directory with .eml + .json sidecars."""
+    export_dir = root / "Export" / "Inbox"
+    export_dir.mkdir(parents=True, exist_ok=True)
+
+    for index, (from_addr, subject, date_str) in enumerate(messages):
+        eml_path = export_dir / f"message-{index}.eml"
+        eml_path.write_bytes(
+            (
+                f"From: {from_addr}\n"
+                "To: testuser@example.com\n"
+                f"Subject: {subject}\n"
+                f"Date: {date_str}\n"
+                f"Message-ID: <dir-{index}@example.com>\n"
+                "\n"
+                "Body line.\n"
+            ).encode()
+        )
+        eml_path.with_suffix(".json").write_text(
+            json.dumps({"metadata": {"index": index}})
+        )
+
+    return root / "Export"
 
 
 class TestMboxSplitter:
@@ -143,7 +217,7 @@ class TestMboxParserProvider:
         assert email_obj.reply_to == "support@github.com"
         assert email_obj.message_id == "<case@test.example>"
         assert email_obj.references == ["<prev@test.example>", "<next@test.example>"]
-        assert email_obj.list_unsubscribe == "<https://example.com/unsub>"
+        assert email_obj.list_unsubscribe == "https://example.com/unsub"
         assert email_obj.mime_type == "text/html"
 
     def test_deduplicates_without_message_id_using_fallback_hash(self) -> None:
@@ -198,3 +272,18 @@ class TestMboxParserProvider:
             "github.com",
             "spotify.com",
         ]
+
+    def test_parse_file_supports_proton_export_directory(self, tmp_path: Path) -> None:
+        export_path = _write_proton_export_dir(
+            tmp_path,
+            ("noreply@github.com", "Welcome", "Mon, 01 Jan 2024 00:00:00 +0000"),
+            ("noreply@dropbox.com", "Confirm", "Tue, 02 Jan 2024 00:00:00 +0000"),
+        )
+
+        emails = self.parser.parse_file(export_path)
+
+        assert [email.sender_domain for email in emails] == [
+            "github.com",
+            "dropbox.com",
+        ]
+        assert [email.subject for email in emails] == ["Welcome", "Confirm"]

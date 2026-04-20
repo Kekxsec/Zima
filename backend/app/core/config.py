@@ -1,5 +1,6 @@
 # backend/app/core/config.py
 from typing import Literal
+from urllib.parse import urlparse
 
 from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -154,9 +155,54 @@ class Settings(BaseSettings):
     # before it is automatically marked stale on the next status poll.
     stale_scan_after_minutes: int = 30
 
+    # Uploads
+    mailbox_upload_max_mb: int = 1024
+
     # Companion
     companion_setup_token_expire_minutes: int = 15
     companion_token_expire_days: int = 7
+
+    # Browser Extension
+    extension_setup_token_expire_minutes: int = 15
+    extension_token_expire_minutes: int = 60
+    extension_setup_token_rate_limit: str = "10/hour"  # noqa: S105
+    extension_register_rate_limit: str = "10/hour"  # noqa: S105
+    extension_refresh_rate_limit: str = "120/hour"  # noqa: S105
+
+    # Local AI — Ollama
+    ollama_enabled: bool = False
+    ollama_base_url: str = "http://localhost:11434"
+    # Keep local-by-default to avoid accidental metadata exfiltration.
+    # Set true only for explicitly trusted remote Ollama deployments.
+    ollama_allow_non_local: bool = False
+    ollama_model: str = "gemma2:2b"
+    ollama_timeout_seconds: int = 30
+    ollama_mode: Literal["off", "shadow", "assist", "enforce"] = "off"
+    ollama_min_confidence: int = 70
+    # Optional safeguard: only apply Ollama suggestions when the suggested
+    # service appears aligned with the sender domain tokens.
+    ollama_require_domain_alignment: bool = False
+    ollama_max_candidates_per_batch: int = 10
+    # Dedicated cap for post-import full-list identity review scans.
+    # Keeps latency bounded and avoids long Ollama queues on large uploads.
+    ollama_post_import_max_candidates: int = 25
+    # Set true only after installing fastembed: pip install fastembed
+    ollama_embed_enabled: bool = False
+
+    @model_validator(mode="after")
+    def validate_ollama_settings(self) -> "Settings":
+        """Enforce local-only Ollama by default unless explicitly overridden."""
+        if not self.ollama_enabled or self.ollama_allow_non_local:
+            return self
+
+        host = (urlparse(self.ollama_base_url).hostname or "").lower()
+        if host not in {"localhost", "127.0.0.1", "::1"}:
+            raise ValueError(
+                "ollama_base_url must point to localhost/loopback when "
+                "ollama_enabled=true. Set OLLAMA_ALLOW_NON_LOCAL=true to "
+                "explicitly allow remote endpoints."
+            )
+        return self
 
     @property
     def is_production(self) -> bool:

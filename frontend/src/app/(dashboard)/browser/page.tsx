@@ -27,16 +27,14 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import { hasBrowserInputs, hasCompletedBrowserReview } from "@/lib/browserReview"
+import { hasBrowserInputs } from "@/lib/browserReview"
 import { usePasswordManagerFlow } from "@/lib/usePasswordManagerFlow"
 import type {
   AccountResponse,
   Asset,
   AssetOut,
   CompanionStatusResponse,
-  DiscoveredAccountListResponse,
   FindingListResponse,
-  MboxUploadListResponse,
   Scan,
   ScanListResponse,
   Signal,
@@ -364,15 +362,7 @@ export default function BrowserPage() {
     queryKey: ["browser-account"],
     queryFn: () => api.get<AccountResponse>("/account"),
   })
-  const { data: uploadsData } = useQuery({
-    queryKey: ["browser-uploads"],
-    queryFn: () => api.get<MboxUploadListResponse>("/email-accounts/uploads?limit=5"),
-  })
-  const { data: accountsData } = useQuery({
-    queryKey: ["browser-accounts-count"],
-    queryFn: () => api.get<DiscoveredAccountListResponse>("/email-accounts/accounts?limit=1"),
-  })
-  const { data: findingsData } = useQuery({
+const { data: findingsData } = useQuery({
     queryKey: ["browser-open-findings"],
     queryFn: () => api.get<FindingListResponse>("/findings?limit=1&filter_status=open"),
   })
@@ -390,18 +380,13 @@ export default function BrowserPage() {
     refetchInterval: 30_000,
   })
 
-  const uploads = uploadsData?.uploads ?? []
-  const discoveredAccounts = accountsData?.total ?? 0
   const openFindings = findingsData?.total ?? 0
   const { exportCompleted } = usePasswordManagerFlow(accountData?.user.user_id)
   const browserAssets = (accountData?.assets ?? []).filter(
     (asset) => asset.entity_type === "device" || asset.entity_type === "url",
   )
   const browserSignals = (signalsData?.signals ?? []).filter(isBrowserSignal)
-  const hasUploadedInbox = uploads.length > 0
-  const uploadProcessing = uploads.some((upload) => upload.status === "pending" || upload.status === "processing")
   const hasBrowserInputsSaved = hasBrowserInputs(accountData?.assets ?? [])
-  const hasBrowserSetup = hasCompletedBrowserReview(accountData?.assets ?? [], scansData?.scans ?? [])
   const hasSavedCurrentDevice = browserAssets.some(
     (asset) => asset.entity_type === "device" && asset.value === localBrowserInfo.deviceLabel,
   )
@@ -470,9 +455,6 @@ export default function BrowserPage() {
   return (
     <div className="space-y-5">
       <div className="space-y-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Step 5
-        </p>
         <h1 className="text-2xl font-bold tracking-tight">Secure your browser</h1>
         <p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">
           After your account cleanup, the next stage is the browser you use every day. We need to know which
@@ -483,7 +465,7 @@ export default function BrowserPage() {
       <Card>
         <CardContent className="flex items-start justify-between gap-4 p-5 flex-wrap">
           <div className="flex items-start gap-3">
-            <MonitorSmartphone className="mt-0.5 h-4 w-4 shrink-0 text-sky-300" />
+            <MonitorSmartphone className="mt-0.5 h-4 w-4 shrink-0 text-violet-400" />
             <div className="min-w-0">
               <p className="text-sm font-semibold text-foreground">
                 {companionStatus?.connected ? "Companion connected" : "Zima Companion"}
@@ -528,7 +510,7 @@ export default function BrowserPage() {
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Step 1. Tell Zima about this browser</CardTitle>
+          <CardTitle className="text-base">Tell Zima about this browser</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
           {accountLoading ? (
@@ -537,7 +519,7 @@ export default function BrowserPage() {
             <>
               <div className="rounded-xl border border-border bg-card/80 px-4 py-4">
                 <div className="flex items-center gap-2">
-                  <Laptop className="h-4 w-4 text-sky-300" />
+                  <Laptop className="h-4 w-4 text-violet-400" />
                   <p className="text-sm font-semibold text-foreground">{localBrowserInfo.deviceLabel}</p>
                 </div>
                 <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
@@ -603,7 +585,7 @@ export default function BrowserPage() {
 
               <div className="rounded-xl border border-border bg-card/80 px-4 py-4">
                 <div className="flex items-start gap-3">
-                  <Info className="mt-0.5 h-4 w-4 text-sky-300 shrink-0" />
+                  <Info className="mt-0.5 h-4 w-4 text-violet-400 shrink-0" />
                   <div>
                     <p className="text-sm font-semibold text-foreground">What this scan can check today</p>
                     <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
@@ -756,7 +738,7 @@ export default function BrowserPage() {
 
           <div className="space-y-3 rounded-xl border border-border bg-card/80 px-4 py-4">
             <div className="flex items-center gap-2">
-              <Wifi className="h-4 w-4 text-sky-300" />
+              <Wifi className="h-4 w-4 text-violet-400" />
               <p className="text-sm font-semibold text-foreground">3. Use secure DNS</p>
             </div>
             <p className="text-sm leading-relaxed text-muted-foreground">

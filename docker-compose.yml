@@ -25,6 +25,20 @@ services:
       timeout: 5s
       retries: 5
 
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5 && ollama pull ${OLLAMA_MODEL:-gemma2:2b} && wait"]
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list | grep -q ${OLLAMA_MODEL:-gemma2:2b}"]
+      interval: 15s
+      timeout: 10s
+      retries: 30
+      start_period: 120s
+
   backend:
     build: .
     working_dir: /app
@@ -32,6 +46,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      ollama:
         condition: service_healthy
     environment:
       APP_ENV: development
@@ -53,30 +69,60 @@ services:
       REQUIRE_TLS_POSTGRES: "false"
       REQUIRE_TLS_REDIS: "false"
       UV_LINK_MODE: copy
+      UV_PROJECT_ENVIRONMENT: /opt/venv
+      UV_PYTHON: /usr/local/bin/python3.12
+      UV_NO_MANAGED_PYTHON: "1"
+      UV_PYTHON_DOWNLOADS: never
+      # Local AI — Ollama (compose sidecar)
+      OLLAMA_ENABLED: ${OLLAMA_ENABLED:-true}
+      # Always use the compose service DNS name from inside the backend container.
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_ALLOW_NON_LOCAL: "true"
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma2:2b}
+      OLLAMA_TIMEOUT_SECONDS: ${OLLAMA_TIMEOUT_SECONDS:-180}
+      OLLAMA_MODE: ${OLLAMA_MODE:-assist}
+      OLLAMA_MIN_CONFIDENCE: ${OLLAMA_MIN_CONFIDENCE:-70}
+      OLLAMA_REQUIRE_DOMAIN_ALIGNMENT: ${OLLAMA_REQUIRE_DOMAIN_ALIGNMENT:-false}
+      OLLAMA_MAX_CANDIDATES_PER_BATCH: ${OLLAMA_MAX_CANDIDATES_PER_BATCH:-5}
+      OLLAMA_POST_IMPORT_MAX_CANDIDATES: ${OLLAMA_POST_IMPORT_MAX_CANDIDATES:-5}
+      OLLAMA_EMBED_ENABLED: ${OLLAMA_EMBED_ENABLED:-false}
     command:
       - /bin/sh
       - -lc
       - |
-        uv sync --dev &&
-        uv run alembic upgrade head &&
+        set -e
+        if [ ! -x /opt/venv/bin/python ]; then
+          uv venv --clear --python /usr/local/bin/python3.12 /opt/venv
+        fi
+        uv sync --dev --python /usr/local/bin/python3.12
+        uv run alembic upgrade head
         uv run uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - .:/app
-      - backend_venv:/app/.venv
+      - backend_runtime_venv:/opt/venv
     ports:
       - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health/ready >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
   frontend:
     image: node:22-alpine
     working_dir: /app/frontend
     depends_on:
       backend:
-        condition: service_started
+        condition: service_healthy
     environment:
       # Browser-side: relative URL so requests stay on the same origin as the
       # frontend and benefit from the Next.js rewrite proxy (avoids cross-origin
       # cookie issues with SameSite=Lax).
       NEXT_PUBLIC_API_URL: /api/v1
+      # Uploads bypass the Next.js rewrite proxy and go directly to the backend.
+      # The Turbopack dev server crashes when proxying large multipart bodies.
+      # CORS allows http://localhost:3000 with credentials so this is safe.
+      NEXT_PUBLIC_API_UPLOAD_URL: http://localhost:8000/api/v1
       # Server-side (rewrites): internal Docker Compose service name
       INTERNAL_API_URL: http://backend:8000
       WATCHPACK_POLLING: "true"
@@ -93,6 +139,7 @@ services:
       - "3000:3000"
 
 volumes:
-  backend_venv:
+  backend_runtime_venv:
   postgres_data:
   frontend_node_modules:
+  ollama_data:

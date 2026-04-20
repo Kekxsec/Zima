@@ -33,7 +33,7 @@ function scoreColor(score: number) {
 
 function scoreGrade(score: number) {
   if (score >= 80) return { label: "Good", text: "text-emerald-200", bg: "bg-emerald-500/10", border: "border-emerald-500/25" }
-  if (score >= 60) return { label: "Fair", text: "text-sky-200", bg: "bg-sky-500/10", border: "border-sky-500/25" }
+  if (score >= 60) return { label: "Fair", text: "text-violet-200", bg: "bg-violet-500/10", border: "border-violet-500/25" }
   if (score >= 40) return { label: "At Risk", text: "text-amber-200", bg: "bg-amber-500/10", border: "border-amber-500/25" }
   return { label: "Critical", text: "text-red-200", bg: "bg-red-500/10", border: "border-red-500/25" }
 }
@@ -146,9 +146,6 @@ export default function ScoresPage() {
   return (
     <div className="space-y-5">
       <div className="space-y-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Step 6
-        </p>
         <h1 className="text-2xl font-bold tracking-tight">Check your progress</h1>
         <p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">
           This page is only a later health check. Use it after accounts, priorities, and browser review are in

@@ -1,4 +1,5 @@
 # tests/api/test_scan_endpoints.py
+import uuid
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
@@ -62,6 +63,61 @@ async def test_trigger_scan_enqueues_background_task(
     mock_task.assert_called_once()
     assert "session" not in mock_task.call_args.kwargs
     assert mock_task.call_args.kwargs["target_email_asset_ids"] == [str(asset.id)]
+
+
+@pytest.mark.asyncio
+async def test_trigger_scan_forwards_post_import_upload_id(
+    auth_client: AsyncClient,
+    db_session,
+) -> None:
+    user = auth_client.test_user  # type: ignore[attr-defined]
+    db_session.add(
+        AssetFactory.build(
+            user_id=user.id,
+            entity_type="email",
+            value="followup-target@example.com",
+            is_verified=True,
+        )
+    )
+    await db_session.commit()
+
+    upload_id = uuid.uuid4()
+    with patch("backend.app.api.v1.scans.run_scan_task") as mock_task:
+        response = await auth_client.post(
+            "/api/v1/scans/",
+            json={"post_import_upload_id": str(upload_id)},
+        )
+
+    assert response.status_code == 202
+    mock_task.assert_called_once()
+    assert mock_task.call_args.kwargs["post_import_upload_id"] == upload_id
+
+
+@pytest.mark.asyncio
+async def test_trigger_scan_forwards_review_all_discovered_accounts_flag(
+    auth_client: AsyncClient,
+    db_session,
+) -> None:
+    user = auth_client.test_user  # type: ignore[attr-defined]
+    db_session.add(
+        AssetFactory.build(
+            user_id=user.id,
+            entity_type="email",
+            value="review-all-target@example.com",
+            is_verified=True,
+        )
+    )
+    await db_session.commit()
+
+    with patch("backend.app.api.v1.scans.run_scan_task") as mock_task:
+        response = await auth_client.post(
+            "/api/v1/scans/",
+            json={"review_all_discovered_accounts": True},
+        )
+
+    assert response.status_code == 202
+    mock_task.assert_called_once()
+    assert mock_task.call_args.kwargs["review_all_discovered_accounts"] is True
 
 
 @pytest.mark.asyncio

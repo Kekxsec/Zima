@@ -97,6 +97,62 @@ def decode_companion_token(token: str) -> dict[str, object]:
         raise ValueError(f"Invalid companion token: {exc}") from exc
 
 
+def create_extension_token(
+    user_id: str, session_id: str, jti: str, expire_minutes: int | None = None
+) -> str:
+    """
+    Creates a signed JWT extension token for the browser extension.
+    Uses Bearer header only — same pattern as companion tokens.
+    jti must match ExtensionSession.extension_jti for per-session revocation.
+    """
+    ttl_minutes = (
+        expire_minutes
+        if expire_minutes is not None
+        else settings.extension_token_expire_minutes
+    )
+    expire = datetime.now(UTC) + timedelta(minutes=ttl_minutes)
+    issued_at = datetime.now(UTC)
+    payload = {
+        "sub": user_id,
+        "session_id": session_id,
+        "type": "extension",
+        "exp": expire,
+        "iat": issued_at,
+        "jti": jti,
+    }
+    return str(
+        jwt.encode(
+            payload,
+            settings.jwt_secret_key.get_secret_value(),
+            algorithm=settings.jwt_algorithm,
+        )
+    )
+
+
+def decode_extension_token(token: str) -> dict[str, object]:
+    """
+    Decodes and validates an extension JWT.
+    Raises ValueError if invalid, expired, or wrong type.
+    """
+    try:
+        payload: dict[str, object] = jwt.decode(
+            token,
+            settings.jwt_secret_key.get_secret_value(),
+            algorithms=[settings.jwt_algorithm],
+        )
+        if payload.get("type") != "extension":
+            raise ValueError("Token type is not 'extension'")
+        issued_at = _coerce_timestamp(payload.get("iat"))
+        if issued_at is not None:
+            payload["iat"] = issued_at
+        expires_at = _coerce_timestamp(payload.get("exp"))
+        if expires_at is not None:
+            payload["exp"] = expires_at
+        return payload
+    except jwt.PyJWTError as exc:
+        raise ValueError(f"Invalid extension token: {exc}") from exc
+
+
 def decode_access_token(token: str) -> dict[str, object]:
     """
     Decodes and validates a JWT access token.

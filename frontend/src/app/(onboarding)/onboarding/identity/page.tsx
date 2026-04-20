@@ -63,11 +63,32 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>
 
+function resolvePhoneDraft(phone: string) {
+  if (!phone) {
+    return { dialCode: "+44", localNumber: "" }
+  }
+
+  const match = [...COUNTRY_CODES]
+    .sort((a, b) => b.code.length - a.code.length)
+    .find(({ code }) => phone.startsWith(code))
+
+  if (!match) {
+    return { dialCode: "+44", localNumber: phone }
+  }
+
+  return {
+    dialCode: match.code,
+    localNumber: phone.slice(match.code.length),
+  }
+}
+
 export default function IdentityPage() {
   const router = useRouter()
+  const savedIdentity = useOnboardingStore((s) => s.identity)
   const setIdentity = useOnboardingStore((s) => s.setIdentity)
   const setPendingEmailVerifications = useOnboardingStore((s) => s.setPendingEmailVerifications)
   const setPendingPhoneVerifications = useOnboardingStore((s) => s.setPendingPhoneVerifications)
+  const phoneDraft = resolvePhoneDraft(savedIdentity?.phone ?? "")
 
   const {
     register,
@@ -75,15 +96,28 @@ export default function IdentityPage() {
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
+    defaultValues: {
+      firstName: savedIdentity?.firstName ?? "",
+      lastName: savedIdentity?.lastName ?? "",
+      phone: phoneDraft.localNumber,
+    },
   })
 
-  const [dialCode, setDialCode] = useState("+44")
+  const [dialCode, setDialCode] = useState(phoneDraft.dialCode)
 
   type Tagged = { id: string; value: string }
   const mkEntry = (): Tagged => ({ id: crypto.randomUUID(), value: "" })
 
-  const [usernames, setUsernames] = useState<Tagged[]>([mkEntry()])
-  const [emailDomains, setEmailDomains] = useState<Tagged[]>([mkEntry()])
+  const [usernames, setUsernames] = useState<Tagged[]>(
+    savedIdentity?.usernames.length
+      ? savedIdentity.usernames.map((value) => ({ id: crypto.randomUUID(), value }))
+      : [mkEntry()],
+  )
+  const [emailDomains, setEmailDomains] = useState<Tagged[]>(
+    savedIdentity?.emailDomains.length
+      ? savedIdentity.emailDomains.map((value) => ({ id: crypto.randomUUID(), value }))
+      : [mkEntry()],
+  )
 
   function addUsername() {
     setUsernames((prev) => [...prev, mkEntry()])

@@ -3,8 +3,8 @@ title: Next Steps to Launch
 aliases: [Next Steps, MVP Next Steps]
 tags: [zima, launch, planning, product]
 created: 2026-04-06
-updated: 2026-04-15
-verified: 2026-04-15
+updated: 2026-04-17
+verified: 2026-04-17
 related:
   - "[[Zima]]"
   - "[[MVP Build/stage-08-pre-launch-hardening]]"
@@ -176,7 +176,26 @@ The Zima Companion Rust binary (Phase 1 — visibility only) is implemented:
 - API: `POST /companion/setup-token`, `POST /companion/register`, `POST /companion/snapshot`, `GET /companion/status`
 - Rust binary: `companion/` with cross-platform build (macOS arm/x86/universal, Linux, Windows)
 - Browser baselines: `companion/baselines/{chrome,brave,firefox}-v1.json` (5 rules each)
-- CI: `companion-ci.yml` + `companion-release.yml` with optional macOS codesign
+- CI: `companion-ci.yml` + `companion-release.yml` — all 4 platform binaries publish on tag `companion-v*`
+
+### Binary Hosting — Current State and Go-Live Gate
+
+**Current (testing):** Release assets are served directly from GitHub (`github.com/Kekxsec/Zima/releases`). The repo is **temporarily public** to allow unauthenticated `curl` downloads. Authenticated download via `gh release download` also works regardless of visibility.
+
+**Why public is required for now:** GitHub release assets on private repos are authentication-gated. Plain `curl` without credentials receives a `404 Not Found` (9 bytes). The companion install page uses `curl` as the primary install path, so a private repo silently breaks installation.
+
+**macOS Gatekeeper note:** Browser downloads set the `com.apple.quarantine` xattr; the companion is not yet notarized. The install page guides users through `curl` + `chmod +x` + `xattr -d com.apple.quarantine` to avoid this. A direct download button is also provided for non-macOS users.
+
+### ⛔ Go-Live Gate — Companion Binary Hosting
+
+Before going live, the repo must be made private again. This requires moving binaries to a public CDN:
+
+- [ ] Create a public Cloudflare R2 bucket (or S3 bucket with public-read ACL) for companion binaries
+- [ ] Upload all 4 platform binaries from the `companion-v0.1.0` release to the bucket
+- [ ] Set `NEXT_PUBLIC_COMPANION_RELEASES_BASE` in the production environment (Railway) to the CDN base URL, e.g. `https://cdn.zima.app/companion/v0.1.0`
+- [ ] Set `NEXT_PUBLIC_COMPANION_RELEASES_PAGE` to the GitHub releases page URL (or a docs page) for the "Browse all releases" link
+- [ ] Flip `Kekxsec/Zima` back to private
+- [ ] Add future release workflow step: upload binaries to CDN on tag push, in addition to creating the GitHub release
 
 **Remaining:** Phase 2 remediation actions (post-launch).
 
@@ -226,32 +245,41 @@ Do not start these before launch:
 - **Phone providers** — truecaller, numverify, callername (target module: `phone_exposure`)
 - **Dark-web index providers** — ahmia, darksearch (target module: `darkweb_identity_monitor`; note: IntelX is in-scope for Stage 10c)
 
-### Local LLM Classification Layer
+### Local LLM Layer — Ollama Provider + Account Disambiguation
 
-A private self-hosted model (Llama 3.x 8B or similar via Ollama) as a confidence and disambiguation layer inside the email account identifier pipeline.
+✅ **Complete** (2026-04-17) — all components implemented and tested.
 
-**Intended role (narrow):**
-- Is this sender a true account service or newsletter/marketing?
-- Do these domains belong to the same product/vendor?
-- Is this message stream transactional or promotional?
-- Is this service safe to treat as a password-manager candidate?
+Ollama runs a local HTTP server (`http://localhost:11434`) serving open-source models (default: Llama 3.2). No cloud, no API keys, no PII leaves the machine.
 
-Acts as a rescoring layer on top of: rules → headers → service knowledge base → model → human review. Not the sole authority.
+| Component | File | Status |
+|---|---|---|
+| `mapper.py` | `providers/ai/ollama/mapper.py` | ✅ Done |
+| `health_check()`, `list_models()`, `structured_query()` | `providers/ai/ollama/client.py` | ✅ Done |
+| Status endpoint | `api/v1/ollama.py` | ✅ Done |
+| Tests (26 tests, 2 files) | `tests/unit/providers/ai/`, `tests/unit/email_accounts/` | ✅ Done |
+| Account disambiguation pipeline | `email_accounts/interpretation.py` | ✅ Done (Stage 14) |
+| Provider client (interpret_account) | `providers/ai/ollama/client.py` | ✅ Done (Stage 14) |
+| Config settings (7 vars) | `core/config.py` | ✅ Done |
 
-**Why deferred:**
-- Cannot tune or evaluate the model before real-world misclassification data exists
-- The rule-based pipeline must ship first and accumulate edge cases
-- Infrastructure overhead (Ollama on Railway CPU: 3–10s inference — unnecessary pre-launch)
+**What it does:** when the mbox classifier makes a low-confidence guess on a sender domain, Ollama receives domain + subject lines (no email bodies, no PII) and returns a structured JSON with a better service name and confidence score.
 
-**Prerequisites before building:**
-1. Rule-based pipeline is live and producing account inventory
-2. At least one batch of real inbox data has been processed
-3. Misclassification examples are catalogued
-4. Confidence score gaps are identified from production output
+**Future AI module use cases:** to be planned separately once specific requirements are defined.
 
-**Architecture:** implement as a pipeline component in the module layer, not a provider. The rule pipeline should emit confidence scores and an `ambiguous` flag to give the model clean, scoped inputs.
+**Rollout modes** (controlled by `OLLAMA_MODE` env var):
+- `off` — no calls, feature disabled
+- `shadow` — calls Ollama, logs suggestions, applies nothing (safe to run in production)
+- `assist` — applies when model confidence ≥ `OLLAMA_MIN_CONFIDENCE` (default 70)
+- `enforce` — applies all structurally valid outputs
 
-**Never:** fully autonomous destructive actions, unsubscribing without review, changing login identities without supervision, irreversible account actions from low-confidence evidence.
+**To run locally:**
+```bash
+brew install ollama
+ollama serve          # starts server at localhost:11434
+ollama pull llama3.2  # download the default model
+```
+Then set `OLLAMA_ENABLED=true` and `OLLAMA_MODE=shadow` in `.env`.
+
+**Never:** autonomous destructive actions, applying changes without a review gate, sending raw email bodies to the model.
 
 ---
 

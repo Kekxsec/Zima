@@ -47,6 +47,25 @@ class AuditRepository:
         )
         return list(result.scalars().all())
 
+    async def get_for_user_by_event_types(
+        self,
+        user_id: uuid.UUID,
+        event_types: list[str],
+        limit: int = 50,
+    ) -> list[AuditEvent]:
+        if not event_types:
+            return []
+        result = await self.session.execute(
+            select(AuditEvent)
+            .where(
+                AuditEvent.user_id == user_id,
+                AuditEvent.event_type.in_(event_types),
+            )
+            .order_by(AuditEvent.created_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
     async def anonymise_for_user(self, user_id: uuid.UUID) -> None:
         """
         GDPR erasure: null user_id on all audit events for this user.

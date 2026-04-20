@@ -8,10 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.api.dependencies import (
     get_asset_service,
     get_auth_service,
+    get_current_user,
     get_db_session,
 )
 from backend.app.assets.service import AssetService
 from backend.app.auth.blacklist import token_blacklist
+from backend.app.auth.models import User
 from backend.app.auth.schemas import OTPRequest, OTPVerify
 from backend.app.auth.service import AuthService
 from backend.app.auth.utils import decode_access_token
@@ -159,3 +161,11 @@ async def logout(
 
     response.delete_cookie(key=_COOKIE_NAME, path="/")
     return {"message": "Signed out."}
+
+
+@router.get("/me", status_code=200)
+async def get_me(
+    current_user: User = Depends(get_current_user),
+) -> dict[str, str]:
+    """Lightweight auth check — returns 200 if cookie is valid, 401 otherwise."""
+    return {"user_id": str(current_user.id)}

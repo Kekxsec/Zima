@@ -10,7 +10,7 @@ export default function LegalLayout({
     <div className="min-h-screen bg-slate-950 text-slate-200">
       <header className="border-b border-slate-800 px-6 py-4">
         <Link href="/" className="flex items-center gap-2.5 w-fit">
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-sky-500">
+          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-violet-600">
             <Shield className="h-3.5 w-3.5 text-white" />
           </div>
           <span className="text-sm font-bold text-white">Zima</span>

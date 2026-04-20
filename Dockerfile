@@ -5,7 +5,11 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_LINK_MODE=copy \
-    PATH="/app/.venv/bin:${PATH}"
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    UV_PYTHON=/usr/local/bin/python3.12 \
+    UV_NO_MANAGED_PYTHON=1 \
+    UV_PYTHON_DOWNLOADS=never \
+    PATH="/opt/venv/bin:${PATH}"
 
 # Tool versions — bump these ARGs to upgrade; verify checksums still match after bumping.
 ARG GRYPE_VERSION=0.84.0
@@ -69,7 +73,7 @@ RUN pip install --no-cache-dir uv
 
 # Copy dependency files first for layer caching
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --python /usr/local/bin/python3.12
 
 # Extra Python-based OSINT tools — versions pinned in pyproject.toml
 RUN uv run pip install --no-cache-dir \
@@ -83,11 +87,15 @@ RUN set -eux; \
          -o /tmp/mailcat.tar.gz && \
     mkdir -p /opt/mailcat && \
     tar -xzf /tmp/mailcat.tar.gz -C /opt/mailcat --strip-components=1 && \
-    rm /tmp/mailcat.tar.gz && \
-    uv run pip install --no-cache-dir -r /opt/mailcat/requirements.txt && \
-    printf '#!/bin/sh\nexec /app/.venv/bin/python /opt/mailcat/mailcat.py "$@"\n' \
-        > /usr/local/bin/mailcat && \
-    chmod +x /usr/local/bin/mailcat
+    rm /tmp/mailcat.tar.gz; \
+    if uv run pip install --no-cache-dir --retries 10 --default-timeout 120 \
+        -r /opt/mailcat/requirements.txt; then \
+        printf '#!/bin/sh\nexec /opt/venv/bin/python /opt/mailcat/mailcat.py "$@"\n' \
+            > /usr/local/bin/mailcat && \
+        chmod +x /usr/local/bin/mailcat; \
+    else \
+        echo "mailcat dependency install failed; continuing without mailcat binary" >&2; \
+    fi
 
 COPY . .
 

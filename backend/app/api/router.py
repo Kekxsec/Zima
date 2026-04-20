@@ -8,11 +8,13 @@ from backend.app.api.v1 import (
     billing,
     companion,
     email_accounts,
+    extension,
     findings,
     health,
     imports,
     integrations,
     legal,
+    ollama,
     scans,
     scores,
     signals,
@@ -41,3 +43,5 @@ api_router.include_router(email_accounts.router, prefix="/api/v1")
 api_router.include_router(imports.router, prefix="/api/v1")
 api_router.include_router(integrations.router, prefix="/api/v1")
 api_router.include_router(companion.router, prefix="/api/v1")
+api_router.include_router(extension.router, prefix="/api/v1")
+api_router.include_router(ollama.router, prefix="/api/v1")

@@ -3,6 +3,8 @@
 
 import csv
 import io
+import json
+import shutil
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
@@ -41,6 +43,38 @@ def _make_mbox(*messages: tuple[str, str, str]) -> bytes:
 def _mbox_file(data: bytes, filename: str = "test.mbox") -> dict:
     """Return httpx files= dict for multipart upload."""
     return {"file": (filename, io.BytesIO(data), "application/mbox")}
+
+
+def _proton_export_folder_files(
+    *messages: tuple[str, str, str],
+    include_json: bool = True,
+) -> list[tuple[str, tuple[str, io.BytesIO, str]]]:
+    """Return multipart files= entries for a Proton Mail export folder upload."""
+    files: list[tuple[str, tuple[str, io.BytesIO, str]]] = []
+    for index, (from_addr, subject, date_str) in enumerate(messages):
+        eml_name = f"Export/Inbox/message-{index}.eml"
+        eml_payload = (
+            f"From: {from_addr}\n"
+            "To: plus@example.com\n"
+            f"Subject: {subject}\n"
+            f"Date: {date_str}\n"
+            f"Message-ID: <dir-{index}@example.com>\n"
+            "\n"
+            "Body.\n"
+        ).encode()
+        files.append(("files", (eml_name, io.BytesIO(eml_payload), "message/rfc822")))
+        if include_json:
+            files.append(
+                (
+                    "files",
+                    (
+                        eml_name.replace(".eml", ".json"),
+                        io.BytesIO(json.dumps({"metadata": {"index": index}}).encode()),
+                        "application/json",
+                    ),
+                )
+            )
+    return files
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +222,139 @@ async def test_upload_valid_mbox_returns_202(plus_client: AsyncClient) -> None:
     body = response.json()
     assert "upload_id" in body
     assert body["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_upload_valid_proton_export_folder_returns_202(
+    plus_client: AsyncClient,
+) -> None:
+    files = _proton_export_folder_files(
+        ("noreply@github.com", "Welcome to GitHub!", "Mon, 01 Jan 2024 00:00:00 +0000")
+    )
+    with patch("backend.app.api.v1.email_accounts.process_mbox_upload"):
+        response = await plus_client.post(
+            "/api/v1/email-accounts/uploads/folder",
+            files=files,
+        )
+    assert response.status_code == 202
+    body = response.json()
+    assert "upload_id" in body
+    assert body["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_upload_proton_export_folder_accepts_more_than_1000_files(
+    plus_client: AsyncClient,
+) -> None:
+    messages = [
+        (
+            f"noreply-{index}@github.com",
+            f"Welcome #{index}",
+            "Mon, 01 Jan 2024 00:00:00 +0000",
+        )
+        for index in range(1001)
+    ]
+    files = _proton_export_folder_files(*messages, include_json=False)
+
+    with patch("backend.app.api.v1.email_accounts.process_mbox_upload") as mock_task:
+        response = await plus_client.post(
+            "/api/v1/email-accounts/uploads/folder",
+            files=files,
+        )
+
+    assert response.status_code == 202
+    kwargs = mock_task.call_args.kwargs
+    shutil.rmtree(kwargs["mbox_path"], ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_upload_proton_export_folder_without_eml_returns_400(
+    plus_client: AsyncClient,
+) -> None:
+    files = [
+        (
+            "files",
+            (
+                "Export/Inbox/message-0.json",
+                io.BytesIO(json.dumps({"metadata": {"index": 0}}).encode()),
+                "application/json",
+            ),
+        )
+    ]
+
+    response = await plus_client.post(
+        "/api/v1/email-accounts/uploads/folder",
+        files=files,
+    )
+
+    assert response.status_code == 400
+    assert "at least one .eml file" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_upload_proton_export_folder_rejects_duplicate_paths(
+    plus_client: AsyncClient,
+) -> None:
+    payload = (
+        b"From: noreply@github.com\n"
+        b"To: plus@example.com\n"
+        b"Subject: Welcome\n"
+        b"Date: Mon, 01 Jan 2024 00:00:00 +0000\n"
+        b"Message-ID: <dir-0@example.com>\n"
+        b"\n"
+        b"Body.\n"
+    )
+    files = [
+        (
+            "files",
+            ("Export/Inbox/message-0.eml", io.BytesIO(payload), "message/rfc822"),
+        ),
+        (
+            "files",
+            ("Export/Inbox/message-0.eml", io.BytesIO(payload), "message/rfc822"),
+        ),
+    ]
+
+    response = await plus_client.post(
+        "/api/v1/email-accounts/uploads/folder",
+        files=files,
+    )
+
+    assert response.status_code == 400
+    assert "duplicate file paths" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_upload_same_proton_folder_twice_is_idempotent(
+    plus_client: AsyncClient,
+) -> None:
+    files = _proton_export_folder_files(
+        (
+            "noreply@dropbox.com",
+            "Confirm your Dropbox account",
+            "Mon, 01 Jan 2024 00:00:00 +0000",
+        )
+    )
+
+    with patch("backend.app.api.v1.email_accounts.process_mbox_upload"):
+        r1 = await plus_client.post(
+            "/api/v1/email-accounts/uploads/folder",
+            files=files,
+        )
+        r2 = await plus_client.post(
+            "/api/v1/email-accounts/uploads/folder",
+            files=_proton_export_folder_files(
+                (
+                    "noreply@dropbox.com",
+                    "Confirm your Dropbox account",
+                    "Mon, 01 Jan 2024 00:00:00 +0000",
+                )
+            ),
+        )
+
+    assert r1.status_code == 202
+    assert r2.status_code == 200
+    assert r1.json()["upload_id"] == r2.json()["upload_id"]
 
 
 @pytest.mark.asyncio
@@ -376,9 +543,127 @@ async def test_list_accounts_pagination_params(plus_client: AsyncClient) -> None
 
 
 @pytest.mark.asyncio
+async def test_list_accounts_accepts_workspace_limit(plus_client: AsyncClient) -> None:
+    response = await plus_client.get(
+        "/api/v1/email-accounts/accounts?limit=500&offset=0"
+    )
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_list_accounts_requires_auth(client: AsyncClient) -> None:
     response = await client.get("/api/v1/email-accounts/accounts")
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_list_accounts_enriches_registry_identity_from_sender_domain(
+    plus_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    user = plus_client.test_user  # type: ignore[attr-defined]
+    primary_email = plus_client.test_asset.value  # type: ignore[attr-defined]
+    now = datetime.now(UTC)
+
+    db_session.add(
+        ServiceRegistry(
+            service_name="trading212",
+            display_name="Trading 212",
+            category="finance",
+            common_domains=["trading212.com"],
+            login_url="https://www.trading212.com/",
+            password_reset_url="https://help.trading212.com/hc/en-us",
+            is_active=True,
+        )
+    )
+    db_session.add(
+        DiscoveredAccount(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            upload_id=uuid.uuid4(),
+            service_name="your",
+            display_name="Your",
+            email_used=primary_email,
+            source_type="account_confirmation",
+            login_url=None,
+            password_reset_url=None,
+            sender_domain="alerts.eu.mail.trading212.com",
+            email_count=99,
+            first_seen_at=now,
+            last_seen_at=now,
+            is_reviewed=False,
+        )
+    )
+    await db_session.commit()
+
+    response = await plus_client.get("/api/v1/email-accounts/accounts")
+    assert response.status_code == 200
+    body = response.json()
+    account = next(
+        a
+        for a in body["accounts"]
+        if a["sender_domain"] == "alerts.eu.mail.trading212.com"
+    )
+
+    assert account["service_name"] == "trading212"
+    assert account["display_name"] == "Trading 212"
+    assert account["login_url"] == "https://www.trading212.com/"
+    assert account["password_reset_url"] == "https://help.trading212.com/hc/en-us"
+    assert account["category"] == "finance"
+
+
+@pytest.mark.asyncio
+async def test_list_accounts_enriches_short_service_labels_with_registry_identity(
+    plus_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    user = plus_client.test_user  # type: ignore[attr-defined]
+    primary_email = plus_client.test_asset.value  # type: ignore[attr-defined]
+    now = datetime.now(UTC)
+
+    db_session.add(
+        ServiceRegistry(
+            service_name="interactiveinvestor",
+            display_name="Interactive Investor",
+            category="finance",
+            common_domains=["ii.co.uk", "interactiveinvestor.com"],
+            login_url="https://www.ii.co.uk/",
+            password_reset_url=None,
+            is_active=True,
+        )
+    )
+    db_session.add(
+        DiscoveredAccount(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            upload_id=uuid.uuid4(),
+            service_name="ii",
+            display_name="ii",
+            email_used=primary_email,
+            source_type="account_confirmation",
+            login_url="https://mail.login.ii.co.uk/",
+            password_reset_url=None,
+            sender_domain="mail.login.ii.co.uk",
+            email_count=3,
+            first_seen_at=now,
+            last_seen_at=now,
+            is_reviewed=False,
+        )
+    )
+    await db_session.commit()
+
+    response = await plus_client.get("/api/v1/email-accounts/accounts")
+    assert response.status_code == 200
+    body = response.json()
+    account = next(
+        a for a in body["accounts"] if a["sender_domain"] == "mail.login.ii.co.uk"
+    )
+
+    assert account["service_name"] == "interactiveinvestor"
+    assert account["display_name"] == "Interactive Investor"
+    assert account["category"] == "finance"
+    # Keep existing observed URL when present.
+    assert account["login_url"] == "https://mail.login.ii.co.uk/"
 
 
 # ---------------------------------------------------------------------------

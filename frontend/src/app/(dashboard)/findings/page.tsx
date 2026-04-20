@@ -35,7 +35,7 @@ function confidenceLabel(confidence: Finding["confidence_label"], score: number)
 
 function StatusBadge({ status }: { status: Finding["status"] }) {
   const cls =
-    status === "open"       ? "border-sky-500/25 bg-sky-500/12 text-sky-200" :
+    status === "open"       ? "border-violet-500/25 bg-violet-500/12 text-violet-200" :
     status === "resolved"   ? "border-emerald-500/25 bg-emerald-500/12 text-emerald-200" :
     /* suppressed */          "border-border bg-muted/70 text-muted-foreground"
   return (
@@ -331,9 +331,6 @@ export default function FindingsPage() {
   return (
     <div className="space-y-5">
       <div className="space-y-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Step 4
-        </p>
         <h1 className="text-2xl font-bold tracking-tight">Fix the important issues</h1>
         <p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">
           This page explains what needs attention and why. Start here after your accounts are sitting in your

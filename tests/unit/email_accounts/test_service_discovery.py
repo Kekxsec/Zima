@@ -9,7 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.db.models.email_accounts import DiscoveredAccountSourceType
 from backend.app.db.repositories.service_registry import ServiceRegistryRepository
-from backend.app.email_accounts.service import AccountDiscoveryService
+from backend.app.email_accounts.service import (
+    AccountDiscoveryService,
+    _extract_service_name_from_subject,
+)
 from backend.app.providers.tools.mbox_parser.models import ParsedEmail
 
 GITHUB_PASSWORD_RESET_URL = "https://github.com/password_reset"  # noqa: S105
@@ -118,12 +121,35 @@ async def test_other_with_registry_match_is_kept(mock_session: MagicMock) -> Non
 
 
 @pytest.mark.asyncio
+async def test_account_confirmation_without_registry_extracts_name_from_subject(
+    mock_session: MagicMock,
+) -> None:
+    """Unknown service with a recognisable subject → name extracted from subject."""
+    emails = [
+        _make_email(sender_domain="newstartup.io", subject="Welcome to NewStartup!")
+    ]
+
+    with patch.object(
+        ServiceRegistryRepository, "find_by_domain", new_callable=AsyncMock
+    ) as mock_find:
+        mock_find.return_value = None
+        service = AccountDiscoveryService(mock_session)
+        result = await service.classify_emails(emails, "user@example.com")
+
+    assert len(result) == 1
+    assert result[0].service_name == "Newstartup"
+    assert result[0].display_name == "Newstartup"
+    assert result[0].login_url is None
+    assert result[0].source_type == DiscoveredAccountSourceType.ACCOUNT_CONFIRMATION
+
+
+@pytest.mark.asyncio
 async def test_account_confirmation_without_registry_falls_back_to_domain(
     mock_session: MagicMock,
 ) -> None:
-    """Account-confirmation email from unknown service → domain-derived name."""
+    """Unknown service with no extractable name → falls back to sender domain."""
     emails = [
-        _make_email(sender_domain="newstartup.io", subject="Welcome to NewStartup!")
+        _make_email(sender_domain="newstartup.io", subject="Confirm your email address")
     ]
 
     with patch.object(
@@ -138,6 +164,34 @@ async def test_account_confirmation_without_registry_falls_back_to_domain(
     assert result[0].display_name == "newstartup.io"
     assert result[0].login_url is None
     assert result[0].source_type == DiscoveredAccountSourceType.ACCOUNT_CONFIRMATION
+
+
+@pytest.mark.asyncio
+async def test_generic_subject_name_does_not_override_domain(
+    mock_session: MagicMock,
+) -> None:
+    """
+    Avoid noisy names like "Your" when subject extraction is too generic.
+    """
+    emails = [
+        _make_email(sender_domain="trading212.com", subject="Welcome to Your"),
+        _make_email(sender_domain="trading212.com", subject="Welcome to Your"),
+    ]
+
+    with patch.object(
+        ServiceRegistryRepository, "find_by_domain", new_callable=AsyncMock
+    ) as mock_find:
+        mock_find.return_value = None
+        service = AccountDiscoveryService(mock_session)
+        result = await service.classify_emails(emails, "user@example.com")
+
+    assert len(result) == 1
+    assert result[0].service_name == "trading212.com"
+    assert result[0].display_name == "trading212.com"
+
+
+def test_subject_extraction_rejects_single_generic_word() -> None:
+    assert _extract_service_name_from_subject("Welcome to Your") is None
 
 
 @pytest.mark.asyncio
@@ -164,16 +218,39 @@ async def test_registry_entry_populates_urls(mock_session: MagicMock) -> None:
 
 
 @pytest.mark.asyncio
-async def test_recipient_email_is_passed_through(mock_session: MagicMock) -> None:
-    """email_used on drafts must equal the recipient_email argument."""
+async def test_to_address_used_as_email_used(mock_session: MagicMock) -> None:
+    """email_used prefers the To: address so alias emails show the correct alias."""
     emails = [_make_email(sender_domain="spotify.com", subject="Welcome to Spotify")]
-
+    # _make_email sets to_address="user@example.com"; recipient_email differs
     with patch.object(
         ServiceRegistryRepository, "find_by_domain", new_callable=AsyncMock
     ) as mock_find:
         mock_find.return_value = None
         service = AccountDiscoveryService(mock_session)
         result = await service.classify_emails(emails, "alice@example.com")
+
+    assert len(result) == 1
+    assert result[0].email_used == "user@example.com"
+
+
+@pytest.mark.asyncio
+async def test_recipient_email_fallback_when_no_to_address(
+    mock_session: MagicMock,
+) -> None:
+    """Falls back to recipient_email when To: header is absent."""
+    email_no_to = ParsedEmail(
+        message_id="<no-to@example.com>",
+        subject="Welcome to Spotify",
+        from_address="noreply@spotify.com",
+        sender_domain="spotify.com",
+        to_address=None,
+    )
+    with patch.object(
+        ServiceRegistryRepository, "find_by_domain", new_callable=AsyncMock
+    ) as mock_find:
+        mock_find.return_value = None
+        service = AccountDiscoveryService(mock_session)
+        result = await service.classify_emails([email_no_to], "alice@example.com")
 
     assert len(result) == 1
     assert result[0].email_used == "alice@example.com"
@@ -273,3 +350,84 @@ async def test_date_propagated_to_draft(mock_session: MagicMock) -> None:
 
     assert result[0].first_seen_at == ts
     assert result[0].last_seen_at == ts
+
+
+@pytest.mark.asyncio
+async def test_unsubscribe_url_propagated_to_draft(mock_session: MagicMock) -> None:
+    """list_unsubscribe from a ParsedEmail is forwarded onto the DiscoveredAccountDraft."""
+    email = ParsedEmail(
+        message_id="<unsub-test@example.com>",
+        subject="Welcome to Acme",
+        from_address="noreply@acme.io",
+        sender_domain="acme.io",
+        to_address="user@example.com",
+        date=datetime(2024, 1, 1, tzinfo=UTC),
+        list_unsubscribe="https://acme.io/unsub?token=abc",
+    )
+
+    with patch.object(
+        ServiceRegistryRepository, "find_by_domain", new_callable=AsyncMock
+    ) as mock_find:
+        mock_find.return_value = None
+        service = AccountDiscoveryService(mock_session)
+        result = await service.classify_emails([email], "user@example.com")
+
+    assert len(result) == 1
+    assert result[0].unsubscribe_url == "https://acme.io/unsub?token=abc"
+
+
+@pytest.mark.asyncio
+async def test_unsubscribe_url_first_non_null_wins_across_messages(
+    mock_session: MagicMock,
+) -> None:
+    """When multiple emails share a domain, the first non-null unsubscribe URL is used."""
+    emails = [
+        ParsedEmail(
+            message_id="<m1@example.com>",
+            subject="Welcome to Acme",
+            from_address="noreply@acme.io",
+            sender_domain="acme.io",
+            to_address="user@example.com",
+            date=datetime(2024, 1, 1, tzinfo=UTC),
+            list_unsubscribe=None,
+        ),
+        ParsedEmail(
+            message_id="<m2@example.com>",
+            subject="Your Acme receipt",
+            from_address="noreply@acme.io",
+            sender_domain="acme.io",
+            to_address="user@example.com",
+            date=datetime(2024, 1, 2, tzinfo=UTC),
+            list_unsubscribe="https://acme.io/unsub?token=xyz",
+        ),
+    ]
+
+    with patch.object(
+        ServiceRegistryRepository, "find_by_domain", new_callable=AsyncMock
+    ) as mock_find:
+        mock_find.return_value = None
+        service = AccountDiscoveryService(mock_session)
+        result = await service.classify_emails(emails, "user@example.com")
+
+    assert len(result) == 1
+    assert result[0].unsubscribe_url == "https://acme.io/unsub?token=xyz"
+
+
+@pytest.mark.asyncio
+async def test_unsubscribe_url_is_none_when_no_messages_have_one(
+    mock_session: MagicMock,
+) -> None:
+    """Draft has unsubscribe_url=None when no email in the group has list_unsubscribe."""
+    emails = [
+        _make_email(sender_domain="nolinks.io", subject="Welcome to NoLinks"),
+    ]
+
+    with patch.object(
+        ServiceRegistryRepository, "find_by_domain", new_callable=AsyncMock
+    ) as mock_find:
+        mock_find.return_value = None
+        service = AccountDiscoveryService(mock_session)
+        result = await service.classify_emails(emails, "user@example.com")
+
+    assert len(result) == 1
+    assert result[0].unsubscribe_url is None

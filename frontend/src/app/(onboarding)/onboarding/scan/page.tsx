@@ -1,117 +1,156 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Shield, CheckCircle2, AlertCircle, Loader2 } from "lucide-react"
 import { OnboardingStepper } from "@/components/onboarding/OnboardingStepper"
 import { useOnboardingStore } from "@/lib/store/onboarding"
 import { api, ApiRequestError } from "@/lib/api/client"
-import type { AssetDeclarePayload, AssetOut, Scan } from "@/types/api"
+import type {
+  AssetDeclarePayload,
+  AssetOut,
+  Scan,
+  ScanEvent,
+  ScanEventListResponse,
+} from "@/types/api"
 
 const STEPS = [
   { label: "Welcome" },
   { label: "Your Identity" },
   { label: "First Scan" },
   { label: "Results" },
+  { label: "Import & Enrich" },
 ]
 
-const SCAN_STEPS = [
+const SCAN_STAGES = [
   {
-    key: "prepare",
+    key: "queued",
     label: "Preparing scan",
-    detail: "Verifying assets and initialising scan profile…",
+    detail: "Creating the scan job and confirming which verified assets can be checked.",
   },
   {
-    key: "breach",
-    label: "Checking breach databases",
-    detail: "Querying HIBP, DeHashed, and LeakCheck for your email addresses…",
+    key: "modules",
+    label: "Running source checks",
+    detail: "Providers are checking breach, exposure, and account-discovery sources.",
   },
   {
-    key: "stealer",
-    label: "Scanning stealer logs",
-    detail: "Searching infostealer logs for captured credentials and cookies…",
-  },
-  {
-    key: "credential",
-    label: "Checking credential exposure",
-    detail: "Looking for leaked usernames and passwords on paste sites…",
-  },
-  {
-    key: "username",
-    label: "Scanning username presence",
-    detail: "Checking your handles across 100+ platforms for public exposure…",
-  },
-  {
-    key: "phone",
-    label: "Checking phone number",
-    detail: "Validating carrier, country, and public CNAM records…",
-  },
-  {
-    key: "reputation",
-    label: "Analysing email reputation",
-    detail: "Checking sender reputation, blocklists, and risk signals…",
-  },
-  {
-    key: "accounts",
-    label: "Discovering linked accounts",
-    detail: "Finding services registered to your email addresses…",
+    key: "correlation",
+    label: "Correlating signals",
+    detail: "Turning raw signals into grouped findings and prioritised issues.",
   },
   {
     key: "scoring",
-    label: "Calculating identity score",
-    detail: "Aggregating findings and computing your risk score…",
+    label: "Updating score",
+    detail: "Calculating your latest identity score from the current scan results.",
+  },
+  {
+    key: "notifications",
+    label: "Finalising results",
+    detail: "Writing the final scan state and preparing anything that needs to be surfaced next.",
   },
 ]
 
-// The scoring step is the final one — it only completes when the scan is done
-const SCORING_IDX = SCAN_STEPS.length - 1
-// Auto-advance stops one step before scoring, so scoring only ticks on actual completion
-const AUTO_ADVANCE_MAX = SCORING_IDX - 1
-// Spread the auto-advance steps across ~72 s (matches typical scan duration)
-const STEP_INTERVAL_MS = 9000
+const STAGE_PROGRESS: Record<string, number> = {
+  queued: 8,
+  modules: 42,
+  correlation: 68,
+  scoring: 84,
+  notifications: 94,
+  completed: 100,
+}
 
 type ScanState = "triggering" | "running" | "completed" | "failed"
+type StageKey = (typeof SCAN_STAGES)[number]["key"] | "completed"
+
+function formatDomainStage(rawStage: string) {
+  const domain = rawStage.replace(/^domain:/, "")
+  return domain
+    .split("_")
+    .join(" ")
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+}
+
+function getStageMeta(events: ScanEvent[], scanState: ScanState) {
+  let stage: StageKey = scanState === "completed" ? "completed" : "queued"
+  let detail = SCAN_STAGES[0].detail
+
+  for (const event of events) {
+    if (event.event_type === "scan_completed") {
+      stage = "completed"
+      detail = "All checks have finished and the results are being prepared."
+      continue
+    }
+
+    if (event.event_type !== "stage_started") continue
+
+    const rawStage = typeof event.data.stage === "string" ? event.data.stage : ""
+    if (rawStage === "modules") {
+      stage = "modules"
+      detail = SCAN_STAGES[1].detail
+      continue
+    }
+    if (rawStage.startsWith("domain:")) {
+      stage = "modules"
+      detail = `Running ${formatDomainStage(rawStage)} checks.`
+      continue
+    }
+    if (rawStage === "correlation") {
+      stage = "correlation"
+      detail = SCAN_STAGES[2].detail
+      continue
+    }
+    if (rawStage === "scoring") {
+      stage = "scoring"
+      detail = SCAN_STAGES[3].detail
+      continue
+    }
+    if (rawStage === "notifications") {
+      stage = "notifications"
+      detail = SCAN_STAGES[4].detail
+      continue
+    }
+    if (rawStage === "post_import_identity_review") {
+      stage = "notifications"
+      detail =
+        "Running final data quality checks on identified accounts to improve service matching."
+    }
+  }
+
+  return {
+    stage,
+    detail,
+    progressPercent:
+      scanState === "completed" ? 100 : STAGE_PROGRESS[stage],
+  }
+}
 
 export default function ScanPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const setScanId = useOnboardingStore((s) => s.setScanId)
   const setCompleted = useOnboardingStore((s) => s.setCompleted)
   const identity = useOnboardingStore((s) => s.identity)
   const scanIdFromStore = useOnboardingStore((s) => s.scanId)
+  const nextPath =
+    searchParams.get("next") === "import-complete"
+      ? "/onboarding/import/complete"
+      : "/onboarding/results"
+  const isImportFollowUp = nextPath === "/onboarding/import/complete"
 
   const [scanState, setScanState] = useState<ScanState>("triggering")
   const [error, setError] = useState<string | null>(null)
-  const [visibleStep, setVisibleStep] = useState(0)
   const [scan, setScan] = useState<Scan | null>(null)
+  const [scanEvents, setScanEvents] = useState<ScanEvent[]>([])
 
-  const stepTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const startedScanPromiseRef = useRef<Promise<Scan> | null>(null)
-
-  // Auto-advance through steps 0 → AUTO_ADVANCE_MAX at STEP_INTERVAL_MS each.
-  // Stops before the scoring step so it doesn't falsely imply completion.
-  useEffect(() => {
-    stepTimerRef.current = setInterval(() => {
-      setVisibleStep((prev) => {
-        if (prev < AUTO_ADVANCE_MAX) return prev + 1
-        clearInterval(stepTimerRef.current!)
-        return prev
-      })
-    }, STEP_INTERVAL_MS)
-    return () => clearInterval(stepTimerRef.current!)
-  }, [])
-
-  const estimatedProgressPercent =
+  const stageMeta = getStageMeta(scanEvents, scanState)
+  const activeVisibleStep =
     scanState === "completed"
-      ? 100
+      ? SCAN_STAGES.length - 1
       : Math.max(
-          6,
-          Math.min(
-            94,
-            Math.round(((visibleStep + (scanState === "running" ? 0.5 : 0)) / SCAN_STEPS.length) * 100),
-          ),
+          0,
+          SCAN_STAGES.findIndex((stage) => stage.key === stageMeta.stage),
         )
-
-  const activeVisibleStep = scanState === "completed" ? SCORING_IDX : visibleStep
 
   // Trigger scan then poll.
   useEffect(() => {
@@ -184,22 +223,33 @@ export default function ScanPage() {
       return false
     }
 
+    async function loadScanEvents(scanId: string) {
+      const eventData = await api.get<ScanEventListResponse>(`/scans/${scanId}/events`)
+      if (!cancelled) {
+        setScanEvents(eventData.events)
+      }
+    }
+
     async function triggerAndPoll() {
       try {
         const triggered = await loadOrCreateScan()
         if (cancelled) return
+        await loadScanEvents(triggered.id)
         const finishedImmediately = await applyScanState(triggered)
         if (finishedImmediately || cancelled) {
           return
         }
 
-        // Poll every 4 s — use the individual endpoint so stale detection fires.
-        // This path also resumes correctly if the page replays effects in dev
-        // Strict Mode or the user refreshes mid-scan.
+        // Poll every 4 s — status plus event log. This keeps the UI aligned
+        // with backend stages rather than a timer.
         pollInterval = setInterval(async () => {
           try {
-            const latest = await api.get<Scan>(`/scans/${triggered.id}`)
+            const [latest, eventData] = await Promise.all([
+              api.get<Scan>(`/scans/${triggered.id}`),
+              api.get<ScanEventListResponse>(`/scans/${triggered.id}/events`),
+            ])
             if (cancelled) return
+            setScanEvents(eventData.events)
             const finished = await applyScanState(latest)
             if (finished) {
               clearInterval(pollInterval!)
@@ -230,18 +280,17 @@ export default function ScanPage() {
     }
   }, [identity, scanIdFromStore, setCompleted, setScanId])
 
-  // If the scan completes very fast (before the dashboard redirect), go to results
   useEffect(() => {
-    if (scanState === "completed" && activeVisibleStep >= SCORING_IDX) {
-      const t = setTimeout(() => router.push("/onboarding/results"), 1200)
+    if (scanState === "completed") {
+      const t = setTimeout(() => router.push(nextPath), 1200)
       return () => clearTimeout(t)
     }
-  }, [activeVisibleStep, scanState, router])
+  }, [scanState, router, nextPath])
 
   return (
     <div className="min-h-screen flex flex-col items-center px-4 py-12">
       <div className="mb-10">
-        <OnboardingStepper steps={STEPS} currentStep={2} />
+        <OnboardingStepper steps={STEPS} currentStep={nextPath === "/onboarding/import/complete" ? 4 : 2} />
       </div>
 
       <div className="w-full max-w-lg">
@@ -265,8 +314,12 @@ export default function ScanPage() {
           </div>
 
           <h1 className="text-2xl font-bold text-white mb-2">
-            {scanState === "triggering" && "Starting your scan…"}
-            {scanState === "running" && "Scanning your identity…"}
+            {scanState === "triggering" &&
+              (isImportFollowUp ? "Starting follow-up scan…" : "Starting your scan…")}
+            {scanState === "running" &&
+              (isImportFollowUp
+                ? "Applying imported account evidence…"
+                : "Scanning your identity…")}
             {scanState === "completed" && "Scan complete"}
             {scanState === "failed" && "Scan failed"}
           </h1>
@@ -275,15 +328,17 @@ export default function ScanPage() {
               ? error ?? "An unexpected error occurred."
               : scanState === "completed"
               ? "All checks complete. Preparing your results…"
-              : "Scans check dozens of sources and can take up to 30 minutes. Stay on this page and we’ll move you forward as soon as results are ready."}
+              : isImportFollowUp
+              ? "This follow-up scan runs provider checks, final data quality checks on identified accounts, correlation, and scoring so your imported evidence is reflected in findings."
+              : "This status reflects live backend stages rather than a time estimate. Stay on this page and we’ll move you forward as soon as the scan finishes."}
           </p>
         </div>
 
         {scanState !== "failed" && (
           <div className="mb-4">
             <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-              <span>{scanState === "completed" ? "Complete" : "Estimated progress"}</span>
-              <span>{estimatedProgressPercent}%</span>
+              <span>{scanState === "completed" ? "Complete" : "Backend stage progress"}</span>
+              <span>{stageMeta.progressPercent}%</span>
             </div>
             <div className="h-2 rounded-full bg-slate-800/70 border border-slate-700/60 overflow-hidden">
               <div
@@ -292,16 +347,18 @@ export default function ScanPage() {
                     ? "bg-emerald-400"
                     : "bg-primary"
                 }`}
-                style={{ width: `${estimatedProgressPercent}%` }}
+                style={{ width: `${stageMeta.progressPercent}%` }}
               />
             </div>
+            {scanState !== "completed" && (
+              <p className="mt-2 text-xs text-slate-500">{stageMeta.detail}</p>
+            )}
           </div>
         )}
 
-        {/* Scan step list */}
         {scanState !== "failed" && (
           <div className="bg-slate-800/40 border border-slate-700/50 rounded-xl p-4 space-y-1">
-            {SCAN_STEPS.map((step, i) => {
+            {SCAN_STAGES.map((step, i) => {
               const isDone =
                 scanState === "completed"
                   ? true
@@ -337,7 +394,9 @@ export default function ScanPage() {
                       {step.label}
                     </p>
                     {isActive && (
-                      <p className="text-xs text-slate-500 mt-0.5">{step.detail}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {step.key === stageMeta.stage ? stageMeta.detail : step.detail}
+                      </p>
                     )}
                   </div>
                 </div>

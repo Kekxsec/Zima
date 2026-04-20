@@ -3,13 +3,13 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { ScanLine, Play, Clock, CheckCircle2, XCircle, Loader2 } from "lucide-react"
+import { ScanLine, Play, Clock, CheckCircle2, XCircle, Loader2, Brain } from "lucide-react"
 import { format, parseISO } from "date-fns"
 import { api, ApiRequestError } from "@/lib/api/client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import type { ScanListResponse, Scan, ScanTier } from "@/types/api"
+import type { ScanListResponse, Scan, ScanTier, TriggerScanPayload } from "@/types/api"
 import { cn } from "@/lib/utils"
 
 const TIER_INFO: Record<ScanTier, { label: string; description: string; badge: string }> = {
@@ -85,6 +85,7 @@ function ScanRow({ scan }: { scan: Scan }) {
 export default function ScansPage() {
   const qc = useQueryClient()
   const [tier, setTier] = useState<ScanTier>("standard")
+  const [reviewAllDiscoveredAccounts, setReviewAllDiscoveredAccounts] = useState(true)
 
   const { data, isLoading } = useQuery({
     queryKey: ["scans"],
@@ -97,7 +98,11 @@ export default function ScansPage() {
   })
 
   const { mutate: triggerScan, isPending: triggering } = useMutation({
-    mutationFn: () => api.post<Scan>("/scans", { tier }),
+    mutationFn: () =>
+      api.post<Scan>("/scans", {
+        tier,
+        review_all_discovered_accounts: reviewAllDiscoveredAccounts,
+      } satisfies TriggerScanPayload),
     onSuccess: () => {
       toast.success("Scan started!")
       qc.invalidateQueries({ queryKey: ["scans"] })
@@ -162,6 +167,37 @@ export default function ScansPage() {
                 </button>
               )
             })}
+          </div>
+
+          <div className="rounded-lg border border-border p-3">
+            <button
+              type="button"
+              onClick={() => setReviewAllDiscoveredAccounts((prev) => !prev)}
+              className={cn(
+                "flex w-full items-start gap-3 rounded-md p-2 text-left transition-colors",
+                reviewAllDiscoveredAccounts ? "bg-primary/5" : "bg-muted/30 hover:bg-muted/50",
+              )}
+            >
+              <div
+                className={cn(
+                  "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border",
+                  reviewAllDiscoveredAccounts
+                    ? "border-primary/40 bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground",
+                )}
+              >
+                <Brain className="h-4 w-4" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-foreground">
+                  {reviewAllDiscoveredAccounts ? "Ollama sanity review enabled" : "Ollama sanity review disabled"}
+                </p>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  When enabled, this scan also re-checks all discovered accounts with Ollama after provider checks.
+                  This lets you rerun sanity checks without re-uploading mailbox folders.
+                </p>
+              </div>
+            </button>
           </div>
 
           <div className="flex items-center gap-3">

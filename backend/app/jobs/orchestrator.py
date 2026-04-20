@@ -2,10 +2,12 @@
 import uuid
 from datetime import UTC, datetime
 
+from backend.app.core.config import settings
 from backend.app.core.enums import ScanStatus, Tier
 from backend.app.core.logging import get_logger
 from backend.app.correlation.engine import CorrelationEngine
 from backend.app.correlation.rules.identity_compromise import HighIdentityCompromiseRisk
+from backend.app.db.models.email_accounts import DiscoveredAccount
 from backend.app.db.repositories.assets import AssetRepository
 from backend.app.db.repositories.discovered_accounts import DiscoveredAccountRepository
 from backend.app.db.repositories.findings import FindingRepository
@@ -17,6 +19,11 @@ from backend.app.db.repositories.service_registry import ServiceRegistryReposito
 from backend.app.db.repositories.signals import SignalRepository
 from backend.app.db.session import AsyncSessionLocal
 from backend.app.email.service import EmailService
+from backend.app.email_accounts.interpretation import (
+    InterpretationStats,
+    interpret_accounts_with_stats,
+)
+from backend.app.email_accounts.schemas import DiscoveredAccountDraft
 from backend.app.jobs.context import ScanExecutionContext
 from backend.app.jobs.runner import ModuleRunner
 from backend.app.remediation.engine import RemediationEngine
@@ -42,6 +49,8 @@ async def run_scan_task(
     scan_id: uuid.UUID,
     tier: Tier,
     target_email_asset_ids: list[str] | None = None,
+    post_import_upload_id: uuid.UUID | None = None,
+    review_all_discovered_accounts: bool = False,
 ) -> None:
     """
     Background task entry point for a full scan cycle.
@@ -54,8 +63,9 @@ async def run_scan_task(
     2. Run module runner against verified assets for this tier
     3. Run correlation engine against open signals
     4. Calculate and append scores (never overwrite)
-    5. Send email notifications for new high/critical signals
+    5. Optionally run post-import account identity review (Ollama)
     6. Mark scan COMPLETED
+    7. Send email notifications for new high/critical signals
 
     On any unhandled exception, marks scan FAILED and logs the error.
     """
@@ -143,12 +153,152 @@ async def run_scan_task(
             if enqueued > 0:
                 ctx.record_event("notification_enqueued", count=enqueued)
 
-            # ── Step 5: Mark completed ─────────────────────────────────────
+            # ── Step 5: Optional account identity review (Ollama) ──────────
+            post_import_reviewed = 0
+            post_import_updated = 0
+            post_import_ollama_attempted = 0
+            post_import_ollama_succeeded = 0
+            post_import_ollama_failed = 0
+            post_import_review_scope = "none"
+            if review_all_discovered_accounts or post_import_upload_id is not None:
+                ctx.record_event("stage_started", stage="post_import_identity_review")
+                try:
+                    async with session.begin_nested():
+                        if review_all_discovered_accounts:
+                            post_import_review_scope = "all_discovered_accounts"
+                            (
+                                post_import_reviewed,
+                                post_import_updated,
+                                post_import_stats,
+                            ) = await _run_full_identity_review(
+                                user_id=user_id,
+                                account_repo=account_repo,
+                            )
+                        else:
+                            post_import_review_scope = "upload_only"
+                            (
+                                post_import_reviewed,
+                                post_import_updated,
+                                post_import_stats,
+                            ) = await _run_post_import_identity_review(
+                                user_id=user_id,
+                                upload_id=post_import_upload_id,
+                                account_repo=account_repo,
+                            )
+                    post_import_event: dict[str, str | int] = {
+                        "scope": post_import_review_scope,
+                        "reviewed_count": post_import_reviewed,
+                        "updated_count": post_import_updated,
+                        "candidates_attempted": post_import_stats[
+                            "candidates_attempted"
+                        ],
+                        "lookup_resolved": post_import_stats["lookup_resolved"],
+                        "embedding_resolved": post_import_stats["embedding_resolved"],
+                        "ollama_batches": post_import_stats["ollama_batches"],
+                    }
+                    if post_import_upload_id is not None:
+                        post_import_event["upload_id"] = str(post_import_upload_id)
+                    post_import_ollama_attempted = post_import_stats["ollama_queued"]
+                    post_import_ollama_succeeded = post_import_stats["ollama_succeeded"]
+                    post_import_ollama_failed = post_import_stats["ollama_failed"]
+                    post_import_event["ollama_attempted"] = post_import_ollama_attempted
+                    post_import_event["ollama_succeeded"] = post_import_ollama_succeeded
+                    post_import_event["ollama_failed"] = post_import_ollama_failed
+                    ctx.record_event(
+                        "post_import_identity_review_completed",
+                        **post_import_event,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "scan.post_import_identity_review_failed",
+                        scan_id=str(scan_id),
+                        user_id=str(user_id),
+                        upload_id=(
+                            str(post_import_upload_id)
+                            if post_import_upload_id is not None
+                            else None
+                        ),
+                        scope=post_import_review_scope,
+                        error=str(exc),
+                        exc_info=True,
+                    )
+                    failed_event: dict[str, str] = {
+                        "scope": post_import_review_scope,
+                        "error": str(exc)[:512],
+                    }
+                    if post_import_upload_id is not None:
+                        failed_event["upload_id"] = str(post_import_upload_id)
+                    ctx.record_event(
+                        "post_import_identity_review_failed",
+                        **failed_event,
+                    )
+
+            # ── Step 5b: Dedupe accounts by domain ────────────────────────
+            try:
+                async with session.begin_nested():
+                    deduped = await account_repo.merge_duplicates_by_domain(
+                        user_id=user_id
+                    )
+                if deduped > 0:
+                    ctx.record_event("account_dedupe_completed", deleted=deduped)
+            except Exception as exc:
+                logger.warning(
+                    "scan.account_dedupe_failed",
+                    scan_id=str(scan_id),
+                    user_id=str(user_id),
+                    error=str(exc),
+                )
+
+            # ── Step 5c: Backfill login URLs from service registry ─────────
+            try:
+                async with session.begin_nested():
+                    url_filled = await account_repo.backfill_urls_from_registry(
+                        user_id=user_id,
+                        registry_repo=service_registry_repo,
+                    )
+                if url_filled > 0:
+                    ctx.record_event(
+                        "account_url_backfill_completed", updated=url_filled
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "scan.account_url_backfill_failed",
+                    scan_id=str(scan_id),
+                    user_id=str(user_id),
+                    error=str(exc),
+                )
+
+            # ── Step 5d: Classify accounts ─────────────────────────────────
+            try:
+                async with session.begin_nested():
+                    classified = await account_repo.classify_accounts(
+                        user_id=user_id,
+                        registry_repo=service_registry_repo,
+                    )
+                if classified > 0:
+                    ctx.record_event(
+                        "account_classification_completed", updated=classified
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "scan.account_classification_failed",
+                    scan_id=str(scan_id),
+                    user_id=str(user_id),
+                    error=str(exc),
+                )
+
+            # ── Step 6: Mark completed ─────────────────────────────────────
             ctx.record_event(
                 "scan_completed",
                 signals_created=int(run_result["signals_created"]),
                 findings_created=len(findings),
                 identity_score=identity_score,
+                post_import_reviewed=post_import_reviewed,
+                post_import_updated=post_import_updated,
+                post_import_ollama_attempted=post_import_ollama_attempted,
+                post_import_ollama_succeeded=post_import_ollama_succeeded,
+                post_import_ollama_failed=post_import_ollama_failed,
+                post_import_review_scope=post_import_review_scope,
             )
             await event_repo.bulk_record(scan_id, user_id, ctx.drain_events())
             await scan_repo.update_status(
@@ -162,7 +312,7 @@ async def run_scan_task(
             # Commit before sending — outbox rows are now durable.
             await session.commit()
 
-            # ── Step 5b: Process outbox (best-effort send) ─────────────────
+            # ── Step 7: Process outbox (best-effort send) ──────────────────
             # Failures here do not roll back the scan; rows stay pending
             # for retry on the next scan cycle.
             sent = await _process_notification_outbox(
@@ -180,6 +330,12 @@ async def run_scan_task(
                 signals=run_result["signals_created"],
                 findings=len(findings),
                 identity_score=identity_score,
+                post_import_reviewed=post_import_reviewed,
+                post_import_updated=post_import_updated,
+                post_import_ollama_attempted=post_import_ollama_attempted,
+                post_import_ollama_succeeded=post_import_ollama_succeeded,
+                post_import_ollama_failed=post_import_ollama_failed,
+                post_import_review_scope=post_import_review_scope,
             )
 
         except Exception as exc:
@@ -202,6 +358,121 @@ async def run_scan_task(
                 await session.commit()
             except Exception as inner_exc:
                 logger.error("scan.failed_to_mark_failed", error=str(inner_exc))
+
+
+def _empty_interpretation_stats() -> InterpretationStats:
+    return {
+        "total_drafts": 0,
+        "candidates_attempted": 0,
+        "lookup_resolved": 0,
+        "embedding_resolved": 0,
+        "ollama_queued": 0,
+        "ollama_batches": 0,
+        "ollama_succeeded": 0,
+        "ollama_failed": 0,
+    }
+
+
+async def _run_identity_review_for_accounts(
+    *,
+    user_id: uuid.UUID,
+    accounts: list[DiscoveredAccount],
+    account_repo: DiscoveredAccountRepository,
+) -> tuple[int, int, InterpretationStats]:
+    if not accounts:
+        return 0, 0, _empty_interpretation_stats()
+
+    drafts = [
+        DiscoveredAccountDraft(
+            service_name=account.service_name,
+            display_name=account.display_name,
+            email_used=account.email_used,
+            source_type=account.source_type,
+            sender_domain=account.sender_domain,
+            login_url=account.login_url,
+            password_reset_url=account.password_reset_url,
+            unsubscribe_url=account.unsubscribe_url,
+            first_seen_at=account.first_seen_at,
+            last_seen_at=account.last_seen_at,
+            email_count=account.email_count,
+            confidence_score=account.confidence_score,
+        )
+        for account in accounts
+    ]
+    subjects_map = {
+        account.sender_domain: [] for account in accounts if account.sender_domain
+    }
+    reviewed, stats = await interpret_accounts_with_stats(
+        drafts,
+        subjects_map,
+        review_all=True,
+        max_candidates=0,
+        force_ollama=False,
+        batch_size=settings.ollama_post_import_max_candidates,
+    )
+
+    updated_count = 0
+    for account, updated_draft in zip(accounts, reviewed, strict=True):
+        if (
+            updated_draft.service_name == account.service_name
+            and updated_draft.display_name == account.display_name
+        ):
+            continue
+        before_service = account.service_name
+        before_display = account.display_name
+        updated = await account_repo.update_identity_fields(
+            account_id=account.id,
+            user_id=user_id,
+            service_name=updated_draft.service_name,
+            display_name=updated_draft.display_name,
+        )
+        if updated is None:
+            continue
+        if (
+            updated.service_name != before_service
+            or updated.display_name != before_display
+        ):
+            updated_count += 1
+
+    return len(accounts), updated_count, stats
+
+
+async def _run_full_identity_review(
+    *,
+    user_id: uuid.UUID,
+    account_repo: DiscoveredAccountRepository,
+) -> tuple[int, int, InterpretationStats]:
+    """
+    Run Ollama identity review across all discovered accounts for the user.
+    """
+    accounts = await account_repo.list_all_for_user(user_id=user_id)
+    return await _run_identity_review_for_accounts(
+        user_id=user_id,
+        accounts=accounts,
+        account_repo=account_repo,
+    )
+
+
+async def _run_post_import_identity_review(
+    *,
+    user_id: uuid.UUID,
+    upload_id: uuid.UUID | None,
+    account_repo: DiscoveredAccountRepository,
+) -> tuple[int, int, InterpretationStats]:
+    """
+    Run line-by-line Ollama identity review on accounts from one upload.
+
+    Returns (reviewed_count, updated_count, stats).
+    """
+    if upload_id is None:
+        return 0, 0, _empty_interpretation_stats()
+
+    accounts = await account_repo.list_for_upload(user_id=user_id, upload_id=upload_id)
+    return await _run_identity_review_for_accounts(
+        user_id=user_id,
+        accounts=accounts,
+        account_repo=account_repo,
+    )
 
 
 async def _enqueue_signal_notifications(

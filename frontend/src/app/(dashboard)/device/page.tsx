@@ -70,7 +70,7 @@ export default function DevicePage() {
           title="Tracked devices"
           value={deviceAssets.length}
           loading={loading}
-          icon={<HardDrive className="h-4 w-4 text-sky-400" />}
+          icon={<HardDrive className="h-4 w-4 text-violet-400" />}
         />
         <SummaryCard
           title="Open device signals"

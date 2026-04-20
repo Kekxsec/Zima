@@ -3,6 +3,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.dependencies import get_current_user, get_db_session
@@ -11,6 +12,7 @@ from backend.app.core.config import settings
 from backend.app.core.enums import EntityType, ScanStatus, parse_tier
 from backend.app.core.rate_limit import limiter
 from backend.app.db.repositories.assets import AssetRepository
+from backend.app.db.repositories.scan_events import ScanEventRepository
 from backend.app.db.repositories.scans import ScanRepository
 from backend.app.jobs.models import Scan
 from backend.app.jobs.orchestrator import run_scan_task
@@ -18,11 +20,23 @@ from backend.app.jobs.orchestrator import run_scan_task
 router = APIRouter(prefix="/scans", tags=["scans"])
 
 
+class TriggerScanRequest(BaseModel):
+    # Kept for backwards compatibility with existing frontend payloads.
+    tier: str | None = None
+    # When set, the scan orchestrator runs a post-import identity review over
+    # accounts discovered from this specific mailbox upload.
+    post_import_upload_id: uuid.UUID | None = None
+    # When true, run an Ollama sanity pass over all discovered accounts after
+    # provider/module checks, without requiring a fresh mailbox upload.
+    review_all_discovered_accounts: bool = False
+
+
 @router.post("", status_code=202)
 @limiter.limit("5/hour")
 async def trigger_scan(
     request: Request,  # Required by slowapi for rate limiting
     background_tasks: BackgroundTasks,
+    payload: TriggerScanRequest | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, object]:
@@ -54,6 +68,12 @@ async def trigger_scan(
         scan_id=scan.id,
         tier=parse_tier(current_user.tier),
         target_email_asset_ids=target_email_asset_ids,
+        post_import_upload_id=(
+            payload.post_import_upload_id if payload is not None else None
+        ),
+        review_all_discovered_accounts=(
+            payload.review_all_discovered_accounts if payload is not None else False
+        ),
     )
 
     return _scan_to_dict(scan)
@@ -125,6 +145,46 @@ async def get_scan_status(
                 scan = refreshed
 
     return _scan_to_dict(scan)
+
+
+@router.get("/{scan_id}/events")
+async def get_scan_events(
+    scan_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict[str, object]:
+    """
+    Return structured scan events for one scan, ordered oldest-first.
+    Used by the frontend to show backend-backed stage progress instead of
+    synthetic timer-based estimates.
+    """
+    try:
+        scan_uuid = uuid.UUID(scan_id)
+    except ValueError as err:
+        raise HTTPException(status_code=422, detail="Invalid scan ID format") from err
+
+    scan_repo = ScanRepository(db)
+    scan = await scan_repo.get_by_id_for_user(
+        scan_id=scan_uuid,
+        user_id=current_user.id,
+    )
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+
+    event_repo = ScanEventRepository(db)
+    events = await event_repo.get_for_scan(scan_id=scan_uuid, user_id=current_user.id)
+    return {
+        "scan_id": str(scan_uuid),
+        "events": [
+            {
+                "id": str(event.id),
+                "event_type": event.event_type,
+                "ts": event.ts.isoformat(),
+                "data": event.data,
+            }
+            for event in events
+        ],
+    }
 
 
 def _scan_to_dict(scan: Scan) -> dict[str, object]:

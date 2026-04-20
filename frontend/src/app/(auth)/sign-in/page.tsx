@@ -18,7 +18,8 @@ type Step = "email" | "otp"
 function SignInForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const next = sanitizeNext(searchParams.get("next"))
+  const rawNext = searchParams.get("next")
+  const next = sanitizeNext(rawNext)
   const setAuthenticated = useAuthStore((s) => s.setAuthenticated)
   const resetOnboarding = useOnboardingStore((s) => s.reset)
   const setCompleted = useOnboardingStore((s) => s.setCompleted)
@@ -81,6 +82,9 @@ function SignInForm() {
         // Can't confirm prior scans — route to onboarding without wiping
         // any existing store state (avoids discarding an in-progress scan id).
       }
+
+      // Always honour an explicit ?next param — e.g. /connect-extension from the browser extension
+      if (rawNext) targetRoute = next
 
       setAuthenticated(true)
       router.push(targetRoute)

@@ -238,6 +238,82 @@ When a stage or sub-stage is finished:
 
 ---
 
+## Skill & Agent Routing for Zima
+
+Invoke these automatically — do not wait for the user to ask.
+
+### gstack Skills (invoke via Skill tool)
+
+| Trigger | Skill |
+|---------|-------|
+| Bug, error, broken behavior, "why is X failing" | `/investigate` |
+| Before committing or opening a PR | `/review` |
+| Push, deploy, open PR | `/ship` |
+| Architectural decision (new module, new provider, layer change) | `/plan-eng-review` |
+| QA of the frontend UI flow | `/qa` |
+| Security-sensitive area: auth, OTP, companion JWT, VNC | `/careful` before proceeding |
+
+### Specialist Agents (invoke via Agent tool, proactively)
+
+| Trigger | Agent |
+|---------|-------|
+| Any Python file written or modified | `python-reviewer` after the edit |
+| Any SQL, Alembic migration, schema change, repository method | `database-reviewer` |
+| Any code touching: auth tokens, OTP, companion JWTs, API keys, `SecretStr`, scan isolation | `security-reviewer` |
+| Planning a new stage, new module, new provider, or major refactor | `architect` |
+| TypeScript / React / Next.js file written or modified | `typescript-reviewer` after the edit |
+| Build errors, type errors, mypy failures | `build-error-resolver` |
+
+### Installed Skills for Zima (invoke via Skill tool)
+
+| Task | Skill |
+|------|-------|
+| Writing pytest tests for providers, modules, or API | `python-testing` |
+| PostgreSQL query, index, or schema design question | `postgres-patterns` |
+| Alembic migration authoring or review | `database-migrations` |
+| FastAPI endpoint design or REST contract | `api-design` |
+| Railway / Docker / CI deployment config | `deployment-patterns` |
+| FastAPI / SQLAlchemy / Pydantic patterns | `backend-patterns` |
+| OWASP / STRIDE security audit | `security-review` |
+
+---
+
+## Token Efficiency
+
+- Short English sentences. 8-10 words max.
+- No filler, no preamble, no pleasantries.
+- Tool first. Result first. No explain unless asked.
+- No em-dashes. No smart quotes. No parenthetical asides.
+- Do not re-read a file already read this session unless it may have changed.
+- Skip files over 100KB unless explicitly required.
+- Suggest running `/cost` when a session is running long.
+- Recommend starting a new session when switching to an unrelated task.
+- **Compact at 60%**: run `/compact` when context feels heavy — do not wait for auto-compact at 95%. Always pass a preservation note: current task, active file paths, key decisions made this session.
+
+## Model Routing
+
+Route Agent tool calls by task complexity — never default everything to Sonnet.
+
+| Task type | Model |
+|-----------|-------|
+| Research, file search, doc lookup, Explore agents, simple Bash | `haiku` |
+| Code writing, reviews, moderate tasks | `sonnet` (default) |
+| Architecture decisions, complex debugging, multi-step planning | `opus` |
+
+Pass `model: "haiku"` or `model: "opus"` explicitly in Agent tool calls when the task fits.
+
+---
+
+## Working Standards
+
+- **Re-plan immediately** when something goes sideways — don't keep pushing through.
+- **Elegance check** for non-trivial changes: pause and ask "is there a more elegant way?" Skip for simple, obvious fixes.
+- **Staff engineer bar**: before marking done, ask "would a staff engineer approve this?"
+- **No temp fixes**: find root causes. No workarounds that paper over the real problem.
+- **Self-improvement loop**: after any user correction, update `tasks/lessons.md` with the mistake pattern and the rule that prevents it. Review `tasks/lessons.md` at the start of each session.
+
+---
+
 ## Working Style
 
 - When the user provides a plan or doc to review, **review it first** before taking any investigative action.

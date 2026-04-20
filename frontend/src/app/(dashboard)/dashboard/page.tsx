@@ -12,12 +12,14 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { SeverityBadge } from "@/components/ui/SeverityBadge"
+import { ExtensionTelemetryCard } from "@/components/dashboard/ExtensionTelemetryCard"
 import { getAdvisorNextAction } from "@/lib/advisorJourney"
 import { hasCompletedBrowserReview } from "@/lib/browserReview"
 import { usePasswordManagerFlow } from "@/lib/usePasswordManagerFlow"
 import type {
   AccountResponse,
   DiscoveredAccountListResponse,
+  ExtensionStatusResponse,
   Finding,
   FindingListResponse,
   MboxUploadListResponse,
@@ -172,6 +174,11 @@ export default function DashboardPage() {
     queryKey: ["advisor-uploads"],
     queryFn: () => api.get<MboxUploadListResponse>("/email-accounts/uploads?limit=5"),
   })
+  const { data: extensionStatus, isLoading: extensionStatusLoading } = useQuery({
+    queryKey: ["extension-status"],
+    queryFn: () => api.get<ExtensionStatusResponse>("/extension/status"),
+    refetchInterval: 30_000,
+  })
 
   const uploads = uploadsData?.uploads ?? []
   const openFindings = findingsData?.findings ?? []
@@ -217,6 +224,11 @@ export default function DashboardPage() {
       {(runningScan || completedIncomingScan) && (
         <ScanProgressBanner scan={runningScan ?? completedIncomingScan!} />
       )}
+
+      <ExtensionTelemetryCard
+        status={extensionStatus}
+        isLoading={extensionStatusLoading}
+      />
 
       <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
         <Card>

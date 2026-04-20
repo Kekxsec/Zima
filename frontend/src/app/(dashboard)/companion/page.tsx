@@ -6,7 +6,6 @@ import { toast } from "sonner"
 import {
   CheckCircle2,
   Copy,
-  Download,
   ExternalLink,
   Loader2,
   MonitorSmartphone,
@@ -22,8 +21,14 @@ import { cn } from "@/lib/utils"
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const COMPANION_VERSION = "0.1.0"
-// Releases live in the main Zima repo, tagged companion-v<semver>
-const RELEASES_BASE = `https://github.com/Kekxsec/Zima/releases/download/companion-v${COMPANION_VERSION}`
+// Releases default to the main Zima repo, tagged companion-v<semver>.
+// Deployments can override both the direct-download base and the browse page.
+const RELEASES_BASE =
+  process.env.NEXT_PUBLIC_COMPANION_RELEASES_BASE ??
+  `https://github.com/Kekxsec/Zima/releases/download/companion-v${COMPANION_VERSION}`
+const RELEASES_PAGE =
+  process.env.NEXT_PUBLIC_COMPANION_RELEASES_PAGE ??
+  `https://github.com/Kekxsec/Zima/releases/tag/companion-v${COMPANION_VERSION}`
 // Backend root URL used in the setup command (strip the /api/v1 path suffix)
 const BACKEND_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1").replace(/\/api\/v1$/, "")
 
@@ -38,11 +43,13 @@ const INSTALL_STEPS: Record<string, string[]> = {
   "macOS (Apple Silicon)": [
     `curl -Lo zima-companion "${RELEASES_BASE}/zima-companion-arm64"`,
     "chmod +x zima-companion",
+    "xattr -d com.apple.quarantine zima-companion",
     "sudo mv zima-companion /usr/local/bin/",
   ],
   "macOS (Intel)": [
     `curl -Lo zima-companion "${RELEASES_BASE}/zima-companion-x86_64-macos"`,
     "chmod +x zima-companion",
+    "xattr -d com.apple.quarantine zima-companion",
     "sudo mv zima-companion /usr/local/bin/",
   ],
   Linux: [
@@ -74,12 +81,12 @@ function DownloadCard() {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base">Step 1. Download the companion</CardTitle>
+        <CardTitle className="text-base">Download the companion</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground leading-relaxed">
-          The companion is a small signed binary — no runtime or installation wizard required. Choose your
-          platform, download, and drop it in your PATH.
+          A command-line binary — install it via Terminal using the steps below. Choose your platform
+          to get the right commands.
         </p>
 
         {/* Platform selector */}
@@ -101,28 +108,23 @@ function DownloadCard() {
           ))}
         </div>
 
-        {/* Download button */}
-        <div className="flex items-center gap-3 flex-wrap">
-          <Button asChild className="gap-2">
-            <a href={downloadUrl} download>
-              <Download className="h-4 w-4" />
-              Download for {selected}
-            </a>
-          </Button>
-          <a
-            href="https://github.com/Kekxsec/zima-companion/releases"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-          >
-            All releases <ExternalLink className="h-3 w-3" />
-          </a>
-        </div>
+        {/* macOS note */}
+        {selected.startsWith("macOS") && (
+          <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-4 py-3">
+            <p className="text-xs font-semibold text-amber-200">Use the Terminal commands below</p>
+            <p className="mt-1 text-xs leading-relaxed text-amber-100/80">
+              The binary is not yet notarized with Apple, so macOS will block it if you download and
+              double-click it. The <code className="font-mono">curl</code> install path below avoids
+              this entirely — it downloads, marks the file executable, clears the quarantine flag,
+              and moves it to your PATH in one go.
+            </p>
+          </div>
+        )}
 
         {/* Install steps */}
         <div className="space-y-1.5">
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Install
+            Install via Terminal
           </p>
           <div className="rounded-lg border border-border/70 bg-background px-4 py-3">
             {installSteps.map((step) => (
@@ -142,6 +144,26 @@ function DownloadCard() {
               </div>
             ))}
           </div>
+        </div>
+
+        {/* Download button + GitHub link */}
+        <div className="flex items-center gap-3 flex-wrap pt-1">
+          <a
+            href={downloadUrl}
+            download={platform.file}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/40 px-3 py-1.5 text-xs font-medium hover:bg-muted transition-colors"
+          >
+            Download {platform.label} binary
+          </a>
+          <a
+            href={RELEASES_PAGE}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <ExternalLink className="h-3 w-3" />
+            Browse all releases on GitHub
+          </a>
         </div>
       </CardContent>
     </Card>
@@ -168,7 +190,7 @@ function ConnectCard() {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base">Step 2. Connect to your account</CardTitle>
+        <CardTitle className="text-base">Connect to your account</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground leading-relaxed">
@@ -232,7 +254,7 @@ function StatusCard() {
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="text-base flex items-center gap-2">
-          <MonitorSmartphone className="h-4 w-4 text-sky-300" />
+          <MonitorSmartphone className="h-4 w-4 text-violet-400" />
           Companion status
         </CardTitle>
       </CardHeader>

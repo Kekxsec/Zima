@@ -20,7 +20,7 @@ export default function OnboardingLayout({ children }: { children: ReactNode }) 
   if (!hasHydrated || !isAuthenticated) return null
 
   return (
-    <div className="zima-stage-shell min-h-screen">
+    <div className="zima-stage-shell zima-deep-theme min-h-screen">
       {children}
     </div>
   )

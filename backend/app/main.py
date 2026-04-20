@@ -18,13 +18,27 @@ from backend.app.core.startup import (
     check_environment,
     check_redis,
     check_tls_in_connection_strings,
+    seed_service_registry,
 )
 
 logger = get_logger(__name__)
 
 _CLEANUP_INTERVAL_SECONDS = 24 * 60 * 60  # 24 hours
 _REDIS_HEALTH_CHECK_INTERVAL = 60  # seconds
-_MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024  # 10 MB — matches vault import cap
+_DEFAULT_MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024  # 10 MB — matches vault import cap
+_MAILBOX_UPLOAD_MAX_REQUEST_BODY_BYTES = settings.mailbox_upload_max_mb * 1024 * 1024
+
+
+def _max_request_body_bytes_for_path(path: str) -> int:
+    """
+    Return the request-body cap for a given route path.
+
+    Mailbox uploads are intentionally larger than vault imports because Proton
+    Mail folder exports can contain thousands of `.eml` files.
+    """
+    if path.startswith("/api/v1/email-accounts/uploads"):
+        return _MAILBOX_UPLOAD_MAX_REQUEST_BODY_BYTES
+    return _DEFAULT_MAX_REQUEST_BODY_BYTES
 
 
 async def _periodic_redis_health_check() -> None:
@@ -100,6 +114,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await session.commit()
         if stale_count > 0:
             logger.info("startup.stale_scans_cleared", count=stale_count)
+
+    # Ensure the built-in service registry is populated (idempotent upsert)
+    await seed_service_registry()
 
     # Re-run any GDPR erasure tasks that were interrupted by a server restart
     from backend.app.jobs.recovery import recover_stale_deletions
@@ -185,10 +202,16 @@ def create_app() -> FastAPI:
             content_length_header = request.headers.get("content-length")
             if content_length_header:
                 try:
-                    if int(content_length_header) > _MAX_REQUEST_BODY_BYTES:
+                    max_bytes = _max_request_body_bytes_for_path(request.url.path)
+                    if int(content_length_header) > max_bytes:
                         return JSONResponse(
                             status_code=413,
-                            content={"detail": "Request body too large."},
+                            content={
+                                "detail": (
+                                    f"Request body too large. Maximum allowed size is "
+                                    f"{max_bytes // (1024 * 1024)} MB."
+                                )
+                            },
                         )
                 except ValueError:
                     pass

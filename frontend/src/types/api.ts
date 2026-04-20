@@ -66,8 +66,22 @@ export interface ScanListResponse {
   offset: number
 }
 
+export interface ScanEvent {
+  id: string
+  event_type: string
+  ts: string
+  data: Record<string, unknown>
+}
+
+export interface ScanEventListResponse {
+  scan_id: string
+  events: ScanEvent[]
+}
+
 export interface TriggerScanPayload {
   tier?: ScanTier
+  post_import_upload_id?: string
+  review_all_discovered_accounts?: boolean
 }
 
 // ─── Signals ─────────────────────────────────────────────────────────────────
@@ -263,6 +277,37 @@ export interface MboxUploadResponse {
   message?: string
 }
 
+export type VaultImportStatus = "pending" | "processing" | "completed" | "failed"
+export type VaultImportType = "bitwarden_json" | "proton_pass_json" | "1password_1pux"
+
+export interface VaultImport {
+  import_id: string
+  filename: string
+  import_type: VaultImportType
+  status: VaultImportStatus
+  accounts_discovered: number
+  created_at: string
+  processed_at: string | null
+}
+
+export interface VaultImportListResponse {
+  imports: VaultImport[]
+  limit: number
+  offset: number
+}
+
+export interface VaultImportResponse {
+  import_id: string
+  status: VaultImportStatus
+  message?: string
+}
+
+export interface VaultImportDetailResponse extends VaultImport {
+  error_detail: string | null
+}
+
+export type AccountVerdict = "confirmed" | "dismissed" | "newsletter" | "receipt"
+
 export interface DiscoveredAccount {
   id: string
   service_name: string
@@ -277,6 +322,11 @@ export interface DiscoveredAccount {
   last_seen_at: string | null
   is_reviewed: boolean
   created_at: string
+  category: string | null
+  priority_tier: number
+  priority_label: string
+  confidence_score: number
+  user_verdict: AccountVerdict | null
 }
 
 export interface DiscoveredAccountListResponse {
@@ -347,6 +397,61 @@ export interface CompanionStatusResponse {
   platform: string | null
   version: string | null
   extension_count: number
+}
+
+// ─── Browser Extension ────────────────────────────────────────────────────────
+
+export interface ExtensionInstalledExtension {
+  id: string
+  name: string
+  version: string
+  enabled: boolean
+}
+
+export interface ExtensionGuideEvent {
+  provider: string
+  step: string
+  created_at: string
+}
+
+export interface ExtensionConnectAttempt {
+  event_type: string
+  outcome: string
+  reason: string | null
+  browser: string | null
+  extension_version: string | null
+  ip_address: string | null
+  created_at: string
+}
+
+export interface ExtensionPrivacySettingMapped {
+  key: string
+  label: string
+  category: string
+  relevance: "high" | "medium" | "low" | "info" | string
+  rationale: string
+  recommended_value: unknown
+  hardened_value: unknown
+  current_value: unknown
+  level_of_control: string | null
+  available: boolean
+  error: string | null
+}
+
+export interface ExtensionStatusResponse {
+  connected: boolean
+  last_seen_at: string | null
+  browser: string | null
+  version: string | null
+  latest_snapshot_at: string | null
+  snapshot_encrypted: boolean
+  installed_extension_count: number
+  guide_completions: Record<string, boolean>
+  installed_extensions: ExtensionInstalledExtension[]
+  privacy_settings: Record<string, unknown>
+  privacy_settings_mapped: ExtensionPrivacySettingMapped[]
+  recent_guide_events: ExtensionGuideEvent[]
+  recent_connect_attempts: ExtensionConnectAttempt[]
 }
 
 // ─── API error ───────────────────────────────────────────────────────────────

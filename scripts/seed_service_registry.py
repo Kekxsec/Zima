@@ -320,6 +320,14 @@ SERVICES: list[tuple[str, str, str, list[str], str | None, str | None]] = [
     ),
     ("depop", "Depop", "ecommerce", ["depop.com"], "https://www.depop.com/login", None),
     (
+        "toogoodtogo",
+        "Too Good To Go",
+        "ecommerce",
+        ["toogoodtogo.com"],
+        "https://www.toogoodtogo.com/",
+        None,
+    ),
+    (
         "asos",
         "ASOS",
         "ecommerce",
@@ -466,6 +474,14 @@ SERVICES: list[tuple[str, str, str, list[str], str | None, str | None]] = [
         ["robinhood.com"],
         "https://robinhood.com/login",
         "https://robinhood.com/password-reset",
+    ),
+    (
+        "interactiveinvestor",
+        "Interactive Investor",
+        "finance",
+        ["ii.co.uk", "interactiveinvestor.com"],
+        "https://www.ii.co.uk/",
+        None,
     ),
     (
         "klarna",

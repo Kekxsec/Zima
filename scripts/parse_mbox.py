@@ -1,14 +1,16 @@
 # scripts/parse_mbox.py
 """
-Offline mbox parser — no database or running server required.
+Offline mailbox export parser — no database or running server required.
 
-Parses an mbox file and prints discovered accounts to stdout.
+Parses an `.mbox` file or Proton Mail export directory and prints discovered
+accounts to stdout.
 
 Usage:
     python -m scripts.parse_mbox tests/fixtures/sample.mbox
     python -m scripts.parse_mbox /path/to/your/export.mbox
     python -m scripts.parse_mbox /path/to/export.mbox --format csv
     python -m scripts.parse_mbox /path/to/export.mbox --format json
+    python -m scripts.parse_mbox /path/to/proton-export
 """
 
 from __future__ import annotations
@@ -283,9 +285,12 @@ def _print_json(rows: list[dict]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Parse an mbox file and list discovered accounts."
+        description="Parse a mailbox export file and list discovered accounts."
     )
-    parser.add_argument("mbox", help="Path to the .mbox file")
+    parser.add_argument(
+        "mbox",
+        help="Path to the mailbox export (.mbox file or Proton export directory)",
+    )
     parser.add_argument(
         "--format",
         choices=["table", "csv", "json"],
@@ -303,11 +308,10 @@ def main() -> None:
     if not path.exists():
         sys.exit(f"File not found: {path}")
 
-    data = path.read_bytes()
     provider = MboxParserProvider()
 
-    print(f"Reading {path.name} ({len(data):,} bytes)…", file=sys.stderr)
-    emails = provider.parse(data)
+    print(f"Reading {path.name} ({path.stat().st_size:,} bytes)…", file=sys.stderr)
+    emails = provider.parse_file(path)
     print(f"Parsed {len(emails)} messages.", file=sys.stderr)
 
     skipped = sum(

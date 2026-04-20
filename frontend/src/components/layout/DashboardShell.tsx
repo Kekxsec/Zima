@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
+import { useQuery } from "@tanstack/react-query"
 import { toast } from "sonner"
 import {
   Shield,
@@ -20,13 +21,14 @@ import {
   Menu,
   X,
   Plug,
+  Upload,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { api, ApiRequestError } from "@/lib/api/client"
 import { useAuthStore } from "@/lib/store/auth"
 import { useOnboardingStore } from "@/lib/store/onboarding"
-import type { MessageResponse } from "@/types/api"
+import type { AccountResponse, MessageResponse } from "@/types/api"
 
 const NAV_PRIMARY = [
   { label: "Your plan", href: "/dashboard", icon: LayoutDashboard },
@@ -44,6 +46,7 @@ const NAV_SECONDARY = [
 
 const NAV_SETTINGS = [
   { label: "Companion", href: "/companion", icon: MonitorSmartphone },
+  { label: "Import", href: "/imports", icon: Upload },
   { label: "Integrations", href: "/integrations", icon: Plug },
   { label: "Account", href: "/account", icon: User },
 ]
@@ -64,16 +67,16 @@ function NavItem({ href, icon: Icon, label, active, onClick }: NavItemProps) {
       href={href}
       onClick={onClick}
       className={cn(
-        "group flex items-center gap-3 rounded-xl border px-3 py-2.5 text-sm font-medium transition-all",
+        "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
         active
-          ? "border-sky-400/35 bg-sky-400/12 text-white shadow-[0_0_0_1px_rgba(56,189,248,0.08)]"
-          : "border-transparent text-slate-400 hover:border-slate-700 hover:bg-white/5 hover:text-slate-200",
+          ? "bg-violet-500/15 text-white"
+          : "text-slate-400 hover:bg-white/[0.06] hover:text-slate-200",
       )}
     >
       <Icon
         className={cn(
           "h-[18px] w-[18px] shrink-0 transition-colors",
-          active ? "text-sky-400" : "text-slate-500 group-hover:text-slate-300",
+          active ? "text-violet-400" : "text-slate-500 group-hover:text-slate-300",
         )}
       />
       {label}
@@ -81,32 +84,8 @@ function NavItem({ href, icon: Icon, label, active, onClick }: NavItemProps) {
   )
 }
 
-function NavSection({
-  label,
-  items,
-  pathname,
-  onNavigate,
-}: {
-  label: string
-  items: typeof NAV_PRIMARY
-  pathname: string
-  onNavigate?: () => void
-}) {
-  return (
-    <div className="space-y-0.5">
-      <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-widest text-slate-600">
-        {label}
-      </p>
-      {items.map((item) => (
-        <NavItem
-          key={item.href}
-          {...item}
-          active={pathname === item.href || pathname.startsWith(`${item.href}/`)}
-          onClick={onNavigate}
-        />
-      ))}
-    </div>
-  )
+function NavDivider() {
+  return <div className="mx-1 my-2 border-t border-white/[0.06]" />
 }
 
 function Sidebar({
@@ -118,11 +97,26 @@ function Sidebar({
 }) {
   const pathname = usePathname()
 
+  const { data: accountData } = useQuery({
+    queryKey: ["accounts-profile"],
+    queryFn: () => api.get<AccountResponse>("/account"),
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const primaryEmail = accountData?.assets.find(
+    (a) => a.entity_type === "email" && a.is_verified,
+  )?.value
+  const monogram = primaryEmail ? primaryEmail[0].toUpperCase() : "Z"
+
+  function isActive(href: string) {
+    return pathname === href || pathname.startsWith(`${href}/`)
+  }
+
   return (
-    <div className="flex h-full flex-col border-r border-white/[0.06] bg-[#091321]/85 backdrop-blur-xl">
+    <div className="flex h-full flex-col border-r border-white/[0.06] bg-[#090713]/90 backdrop-blur-xl">
       {/* Brand */}
-      <div className="flex items-center gap-3 border-b border-white/[0.07] px-5 py-[18px]">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500 shadow-lg shadow-sky-500/30">
+      <div className="flex items-center gap-3 px-4 py-5">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-600 shadow-lg shadow-violet-500/30">
           <Shield className="h-4 w-4 text-white" />
         </div>
         <div className="leading-tight">
@@ -132,23 +126,64 @@ function Sidebar({
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-5">
-        <NavSection label="Your next steps" items={NAV_PRIMARY} pathname={pathname} onNavigate={onNavigate} />
-        <NavSection label="More detail" items={NAV_SECONDARY} pathname={pathname} onNavigate={onNavigate} />
-        <NavSection label="Settings" items={NAV_SETTINGS} pathname={pathname} onNavigate={onNavigate} />
+      <nav className="flex-1 overflow-y-auto px-2 pb-2">
+        <div className="space-y-0.5">
+          {NAV_PRIMARY.map((item) => (
+            <NavItem
+              key={item.href}
+              {...item}
+              active={isActive(item.href)}
+              onClick={onNavigate}
+            />
+          ))}
+        </div>
+
+        <NavDivider />
+
+        <div className="space-y-0.5">
+          {NAV_SECONDARY.map((item) => (
+            <NavItem
+              key={item.href}
+              {...item}
+              active={isActive(item.href)}
+              onClick={onNavigate}
+            />
+          ))}
+        </div>
+
+        <NavDivider />
+
+        <div className="space-y-0.5">
+          {NAV_SETTINGS.map((item) => (
+            <NavItem
+              key={item.href}
+              {...item}
+              active={isActive(item.href)}
+              onClick={onNavigate}
+            />
+          ))}
+        </div>
       </nav>
 
-      {/* Sign out */}
-      <div className="border-t border-white/[0.07] px-3 py-4">
-        <button
-          onClick={onLogout}
-          className="flex w-full items-center gap-3 rounded-md border-l-2 border-transparent px-3 py-2
-                     text-sm font-medium text-slate-500 transition-all
-                     hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-400"
-        >
-          <LogOut className="h-[18px] w-[18px] shrink-0" />
-          Sign out
-        </button>
+      {/* User footer */}
+      <div className="border-t border-white/[0.06] px-3 py-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-violet-600/25 text-xs font-semibold text-violet-300">
+            {monogram}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs text-slate-300">
+              {primaryEmail ?? "Your account"}
+            </p>
+          </div>
+          <button
+            onClick={onLogout}
+            title="Sign out"
+            className="shrink-0 rounded-md p-1.5 text-slate-600 transition-colors hover:bg-white/[0.06] hover:text-red-400"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -196,7 +231,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="zima-deep-theme zima-stage-shell flex h-screen overflow-hidden text-foreground">
       {/* Desktop sidebar */}
-      <aside className="hidden w-56 shrink-0 md:flex md:flex-col">
+      <aside className="hidden w-64 shrink-0 md:flex md:flex-col">
         <Sidebar onLogout={handleLogout} />
       </aside>
 
@@ -216,7 +251,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       {/* Main column */}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* Top bar */}
-        <header className="flex h-14 shrink-0 items-center gap-4 border-b border-border/80 bg-card/80 px-6 backdrop-blur-xl">
+        <header className="flex h-14 shrink-0 items-center gap-4 border-b border-border/60 bg-card/50 px-6 backdrop-blur-xl">
           <Button
             variant="ghost"
             size="icon"
@@ -228,7 +263,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
           {/* Mobile brand */}
           <div className="flex items-center gap-2.5 md:hidden">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-sky-500">
+            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-violet-600">
               <Shield className="h-3.5 w-3.5 text-white" />
             </div>
             <span className="text-sm font-bold text-white">Zima</span>
@@ -245,8 +280,15 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           )}
         </header>
 
-        {/* Content */}
-        <main className="flex-1 overflow-y-auto bg-transparent p-6 md:p-8">
+        {/* Content — full-bleed on split-pane pages */}
+        <main
+          className={cn(
+            "flex-1 bg-transparent",
+            pathname === "/accounts"
+              ? "overflow-hidden"
+              : "overflow-y-auto p-6 md:p-8",
+          )}
+        >
           {children}
         </main>
       </div>

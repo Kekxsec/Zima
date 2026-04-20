@@ -4,6 +4,68 @@ from backend.app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+
+async def seed_service_registry() -> None:
+    """
+    Idempotent upsert of the built-in service registry entries.
+
+    Uses INSERT ... ON CONFLICT DO UPDATE so it is safe to call on every
+    startup.  This ensures the table is populated even on a fresh deployment
+    without requiring a separate manual step.
+    """
+    import uuid
+
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from backend.app.db.models.email_accounts import ServiceRegistry
+    from backend.app.db.session import AsyncSessionLocal
+    from scripts.seed_service_registry import SERVICES, _load_custom
+
+    all_services = SERVICES + _load_custom()
+
+    async with AsyncSessionLocal() as session:
+        for (
+            service_name,
+            display_name,
+            category,
+            common_domains,
+            login_url,
+            password_reset_url,
+        ) in all_services:
+            stmt = (
+                pg_insert(ServiceRegistry)
+                .values(
+                    id=uuid.uuid4(),
+                    service_name=service_name,
+                    display_name=display_name,
+                    category=category,
+                    common_domains=common_domains,
+                    login_url=login_url,
+                    password_reset_url=password_reset_url,
+                    is_active=True,
+                )
+                .on_conflict_do_update(
+                    constraint="uq_service_registry_name",
+                    set_={
+                        "display_name": display_name,
+                        "category": category,
+                        "common_domains": common_domains,
+                        "login_url": login_url,
+                        "password_reset_url": password_reset_url,
+                        "is_active": True,
+                    },
+                )
+            )
+            await session.execute(stmt)
+
+        await session.commit()
+
+    logger.info(
+        "startup.service_registry_seeded",
+        total=len(all_services),
+    )
+
+
 REQUIRED_IN_PRODUCTION = [
     ("resend_api_key", "Email delivery will not work"),
     ("stripe_secret_key", "Billing will not work"),

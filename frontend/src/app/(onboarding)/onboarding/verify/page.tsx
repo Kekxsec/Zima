@@ -8,6 +8,7 @@ import {
   Loader2,
   Mail,
   Phone,
+  ArrowLeft,
   ArrowRight,
   RotateCcw,
 } from "lucide-react"
@@ -147,6 +148,10 @@ export default function VerifyEmailsPage() {
     router.push("/onboarding/scan")
   }
 
+  function handleBack() {
+    router.push("/onboarding/identity")
+  }
+
   if (items.length === 0) return null
 
   return (
@@ -156,6 +161,18 @@ export default function VerifyEmailsPage() {
       </div>
 
       <div className="w-full max-w-lg">
+        <div className="mb-4">
+          <Button
+            type="button"
+            variant="ghost"
+            className="px-0 text-slate-400 hover:bg-transparent hover:text-slate-200"
+            onClick={handleBack}
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to identity details
+          </Button>
+        </div>
+
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 mb-5">
             <Mail className="w-7 h-7 text-primary" />

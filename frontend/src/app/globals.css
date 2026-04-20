@@ -13,8 +13,8 @@
   --popover:           0 0% 100%;
   --popover-foreground: 220 13% 13%;
 
-  /* Zima Blue primary (#0EA5E9) */
-  --primary:           199 89% 48%;
+  /* Zima Violet primary */
+  --primary:           258 100% 67%;
   --primary-foreground: 0 0% 100%;
 
   /* Secondary — slate 100 */
@@ -25,9 +25,9 @@
   --muted:             210 20% 96%;
   --muted-foreground:  215 16% 47%;
 
-  /* Accent — sky 50 */
-  --accent:            199 89% 96%;
-  --accent-foreground: 199 89% 30%;
+  /* Accent — violet 50 */
+  --accent:            258 100% 97%;
+  --accent-foreground: 258 89% 35%;
 
   /* Danger */
   --destructive:       0 84% 60%;
@@ -36,10 +36,10 @@
   /* Borders & inputs */
   --border:            214 20% 88%;
   --input:             214 20% 88%;
-  --ring:              199 89% 48%;
+  --ring:              258 100% 67%;
 
   /* Chart palette */
-  --chart-1:           199 89% 48%;   /* Zima Blue */
+  --chart-1:           258 100% 67%;  /* Zima Violet */
   --chart-2:           160 60% 45%;   /* emerald */
   --chart-3:           38 92% 50%;    /* amber */
   --chart-4:           0 84% 60%;     /* red */
@@ -100,27 +100,28 @@ body {
 
 .zima-stage-shell {
   background:
-    radial-gradient(circle at top, hsl(199 89% 48% / 0.12), transparent 28rem),
-    linear-gradient(135deg, #020617 0%, #0b1220 50%, #020617 100%);
+    radial-gradient(circle at top, hsl(258 100% 67% / 0.10), transparent 28rem),
+    linear-gradient(135deg, #07050f 0%, #0e0a1c 50%, #07050f 100%);
 }
 
 .zima-deep-theme {
   color-scheme: dark;
-  --background: 222 44% 8%;
+  --primary: 258 100% 67%;
+  --ring: 258 100% 67%;
+  --background: 262 25% 8%;
   --foreground: 210 40% 96%;
-  --card: 222 33% 13%;
+  --card: 262 18% 12%;
   --card-foreground: 210 40% 96%;
-  --popover: 222 33% 13%;
+  --popover: 262 18% 12%;
   --popover-foreground: 210 40% 96%;
-  --secondary: 221 28% 18%;
+  --secondary: 262 18% 17%;
   --secondary-foreground: 210 40% 96%;
-  --muted: 221 24% 16%;
+  --muted: 262 15% 15%;
   --muted-foreground: 215 20% 72%;
-  --accent: 199 68% 17%;
-  --accent-foreground: 199 80% 88%;
-  --border: 217 27% 24%;
-  --input: 217 27% 24%;
-  --ring: 199 89% 48%;
+  --accent: 258 50% 17%;
+  --accent-foreground: 258 80% 88%;
+  --border: 262 15% 21%;
+  --input: 262 15% 21%;
 }
 
 .zima-deep-theme .severity-badge {
@@ -146,9 +147,9 @@ body {
 }
 
 .zima-deep-theme .severity-badge-low {
-  background-color: hsl(199 89% 48% / 0.16);
-  border-color: hsl(199 89% 48% / 0.28);
-  color: hsl(199 100% 86%);
+  background-color: hsl(258 100% 67% / 0.16);
+  border-color: hsl(258 100% 67% / 0.28);
+  color: hsl(258 100% 86%);
 }
 
 .zima-deep-theme .severity-badge-info {

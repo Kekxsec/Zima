@@ -91,7 +91,7 @@ export default function TermsPage() {
       <Section title="7. Data and Privacy">
         <p>
           Your use of Zima is also governed by our{" "}
-          <a href="/privacy" className="text-sky-400 hover:text-sky-300 underline">
+          <a href="/privacy" className="text-violet-400 hover:text-violet-300 underline">
             Privacy Policy
           </a>
           , which is incorporated into these Terms by reference.
@@ -145,7 +145,7 @@ export default function TermsPage() {
       <Section title="13. Contact">
         <p>
           For questions about these Terms, contact us at{" "}
-          <span className="text-sky-400">legal@zima.app</span>.
+          <span className="text-violet-400">legal@zima.app</span>.
         </p>
       </Section>
     </div>
