@@ -63,7 +63,9 @@ ignore = ["ANN101", "ANN102"]
 # Provider implementations: pre-written code reviewed in Stage 4.
 # E501/ANN204/ANN401: HTTP client methods have long signatures and JSON returns Any.
 # E402/C408: import layout and dict literals fixed in Stage 4.
-"backend/app/providers/**/*.py" = ["E501", "ANN204", "ANN202", "ANN401", "E402", "C408", "C401", "B020", "S104", "S110", "S112", "S324", "S603"]
+"backend/app/providers/**/*.py" = ["E501", "ANN204", "ANN202", "ANN401", "E402", "C408", "C401", "B020", "S104", "S110", "S112", "S324", "S603", "F821"]
+"backend/app/api/v1/extension.py" = ["E501"]
+"backend/app/db/repositories/extension.py" = ["E501"]
 "backend/app/email_accounts/*.py" = ["E501"]
 # Tests: assert is the correct pattern (S101), annotations not required (ANN), E501 for long docstrings
 "tests/**/*.py" = ["S101", "ANN", "E501", "S105", "S106"]

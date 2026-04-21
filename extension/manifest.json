@@ -1,0 +1,70 @@
+{
+  "manifest_version": 3,
+  "name": "Zima Security",
+  "short_name": "Zima",
+  "version": "1.0.0",
+  "description": "Guided mbox export and browser security snapshot for your Zima audit.",
+  "permissions": ["storage", "management", "privacy", "alarms"],
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src https://api.zima.app https://app.zima.app"
+  },
+  "host_permissions": [
+    "https://mail.google.com/*",
+    "https://outlook.live.com/*",
+    "https://outlook.office.com/*",
+    "https://mail.yahoo.com/*",
+    "https://account.proton.me/*",
+    "https://mail.proton.me/*",
+    "https://app.fastmail.com/*",
+    "https://app.zima.app/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.zima.app/*"],
+      "js": ["content/zimaapp.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://mail.google.com/*"],
+      "js": ["content/gmail.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://outlook.live.com/*", "https://outlook.office.com/*"],
+      "js": ["content/outlook.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://mail.yahoo.com/*"],
+      "js": ["content/yahoo.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://account.proton.me/*", "https://mail.proton.me/*"],
+      "js": ["content/proton.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://app.fastmail.com/*"],
+      "js": ["content/fastmail.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
