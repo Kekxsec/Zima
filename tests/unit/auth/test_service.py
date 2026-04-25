@@ -98,7 +98,7 @@ async def test_request_otp_creates_user_on_first_signin() -> None:
 @pytest.mark.asyncio
 async def test_verify_otp_raises_invalid_for_wrong_code() -> None:
     token_repo = AsyncMock()
-    token_repo.get_valid_token.return_value = None  # No matching token
+    token_repo.list_active_for_email.return_value = []  # No matching token
 
     service = _make_service(token_repo=token_repo)
 
@@ -116,7 +116,7 @@ async def test_verify_otp_raises_same_exception_for_all_failure_modes() -> None:
 
     # Wrong code — user_repo returns None (no user)
     user_repo.get_by_email.return_value = None
-    token_repo.get_valid_token.return_value = None
+    token_repo.list_active_for_email.return_value = []
     with pytest.raises(AuthTokenInvalidException) as exc_info_1:
         await service.verify_otp(email="test@example.com", code="000000")
 
@@ -126,7 +126,7 @@ async def test_verify_otp_raises_same_exception_for_all_failure_modes() -> None:
         code_hash=_hash_code("123456"),
         expires_at=datetime.now(UTC) + timedelta(minutes=10),
     )
-    token_repo.get_valid_token.return_value = valid_token
+    token_repo.list_active_for_email.return_value = [valid_token]
     session.commit = AsyncMock()
 
     deleted_user = User(deleted_at=datetime.now(UTC))
@@ -143,7 +143,7 @@ async def test_verify_otp_raises_same_exception_for_all_failure_modes() -> None:
 async def test_verify_otp_increments_fail_count_on_bad_code() -> None:
     """Each failed verification increments otp_fail_count on the user."""
     token_repo = AsyncMock()
-    token_repo.get_valid_token.return_value = None
+    token_repo.list_active_for_email.return_value = []
 
     user = User()
     user.otp_fail_count = 0
@@ -165,7 +165,7 @@ async def test_verify_otp_increments_fail_count_on_bad_code() -> None:
 async def test_verify_otp_locks_account_after_max_failures() -> None:
     """Account is locked after OTP_MAX_FAILURES consecutive failures."""
     token_repo = AsyncMock()
-    token_repo.get_valid_token.return_value = None
+    token_repo.list_active_for_email.return_value = []
 
     user = User()
     user.otp_fail_count = OTP_MAX_FAILURES - 1  # One away from lockout
@@ -191,11 +191,13 @@ async def test_verify_otp_blocks_locked_account() -> None:
     """A locked account is rejected even when a valid token exists."""
     token_repo = AsyncMock()
     # Even if the token would be valid, lockout fires before the token check
-    token_repo.get_valid_token.return_value = AuthToken(
-        email="test@example.com",
-        code_hash=_hash_code("123456"),
-        expires_at=datetime.now(UTC) + timedelta(minutes=10),
-    )
+    token_repo.list_active_for_email.return_value = [
+        AuthToken(
+            email="test@example.com",
+            code_hash=_hash_code("123456"),
+            expires_at=datetime.now(UTC) + timedelta(minutes=10),
+        )
+    ]
 
     user = User()
     user.otp_fail_count = OTP_MAX_FAILURES
@@ -210,7 +212,7 @@ async def test_verify_otp_blocks_locked_account() -> None:
         await service.verify_otp(email="test@example.com", code="123456")
 
     # Token should NOT have been consumed — lockout fired before token check
-    token_repo.get_valid_token.assert_not_called()
+    token_repo.list_active_for_email.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -222,7 +224,7 @@ async def test_verify_otp_resets_fail_count_on_success() -> None:
         expires_at=datetime.now(UTC) + timedelta(minutes=10),
     )
     token_repo = AsyncMock()
-    token_repo.get_valid_token.return_value = valid_token
+    token_repo.list_active_for_email.return_value = [valid_token]
 
     user = User()
     user.otp_fail_count = 3

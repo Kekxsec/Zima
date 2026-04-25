@@ -1,12 +1,16 @@
 # backend/app/assets/models.py
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Index, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.app.db.base import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from backend.app.auth.models import User
 
 
 class Asset(Base, TimestampMixin):
@@ -16,8 +20,13 @@ class Asset(Base, TimestampMixin):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
+    # Declared so SA's unit-of-work flushes User before Asset on the same flush.
+    user: Mapped["User"] = relationship("User", lazy="raise")
     entity_type: Mapped[str] = mapped_column(String(50), nullable=False)
     value: Mapped[str] = mapped_column(String(512), nullable=False)
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

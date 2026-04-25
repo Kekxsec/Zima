@@ -29,6 +29,7 @@ from backend.app.api.dependencies import (
     get_extension_user,
 )
 from backend.app.auth.models import AuthToken, User
+from backend.app.auth.service import match_token
 from backend.app.auth.utils import create_extension_token
 from backend.app.core.config import settings
 from backend.app.core.crypto import (
@@ -585,7 +586,8 @@ async def register_extension(
     incoming_hash = hashlib.sha256(body.setup_token.encode()).hexdigest()
 
     token_repo = AuthTokenRepository(db)
-    auth_token = await token_repo.get_valid_token(key, incoming_hash)
+    active_tokens = await token_repo.list_active_for_email(key)
+    auth_token = match_token(active_tokens, incoming_hash)
     if auth_token is None:
         await _log_extension_audit(
             db,

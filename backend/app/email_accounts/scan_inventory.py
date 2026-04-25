@@ -9,7 +9,10 @@ from backend.app.db.models.email_accounts import DiscoveredAccountSourceType
 from backend.app.db.repositories.service_registry import ServiceRegistryRepository
 from backend.app.signals.schemas import SignalCreate
 
-SCAN_DISCOVERY_UPLOAD_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+# Scan-derived discoveries (holehe / maigret) are not tied to any mbox upload.
+# DiscoveredAccount.upload_id is nullable to support that path; preserved as a
+# constant so other callers can recognise scan-discovery rows where useful.
+SCAN_DISCOVERY_UPLOAD_ID: uuid.UUID | None = None
 logger = get_logger(__name__)
 
 _PROVIDER_TO_SOURCE_TYPE = {

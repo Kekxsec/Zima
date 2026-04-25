@@ -22,6 +22,7 @@ Lifecycle:
 import shutil
 import uuid
 from pathlib import Path
+from typing import TypedDict
 
 from backend.app.core.config import settings
 from backend.app.core.enums import Confidence, EntityType, Severity
@@ -57,7 +58,14 @@ def _cleanup_mailbox_path(path: str) -> None:
     resolved.unlink(missing_ok=True)
 
 
-def _describe_mailbox_path(path: str) -> dict[str, int | str]:
+class _MailboxStats(TypedDict):
+    source_kind: str
+    total_files: int
+    eml_files: int
+    json_files: int
+
+
+def _describe_mailbox_path(path: str) -> _MailboxStats:
     resolved = Path(path)
     if resolved.is_dir():
         total_files = 0

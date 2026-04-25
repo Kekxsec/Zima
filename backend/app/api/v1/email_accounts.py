@@ -24,6 +24,7 @@ import tempfile
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
+from typing import cast
 
 from fastapi import (
     APIRouter,
@@ -39,9 +40,11 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.dependencies import get_current_user, get_db_session
+from backend.app.assets.models import Asset
 from backend.app.auth.models import User
 from backend.app.core.config import settings
 from backend.app.core.crypto import CryptoError, decrypt_field
@@ -327,7 +330,7 @@ def _hash_and_label_directory(dir_path: Path) -> tuple[str, str, bool]:
 async def _require_verified_primary_email(
     db: AsyncSession,
     user_id: uuid.UUID,
-) -> None:
+) -> Asset:
     asset_repo = AssetRepository(db)
     asset = await asset_repo.get_primary_email(user_id)
     if asset is None or not asset.is_verified:
@@ -365,7 +368,7 @@ def _enqueue_mailbox_processing(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/uploads", status_code=202)
+@router.post("/uploads", status_code=202, response_model=None)
 @limiter.limit("2/hour")
 async def upload_mbox(
     request: Request,
@@ -373,7 +376,7 @@ async def upload_mbox(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
-) -> dict[str, object]:
+) -> dict[str, object] | JSONResponse:
     """
     Accept a mailbox export and queue it for processing.
 
@@ -416,12 +419,29 @@ async def upload_mbox(
                     },
                 )
 
-        upload = await upload_repo.create(
-            user_id=current_user.id,
-            filename=file.filename or "upload.mbox",
-            file_hash=file_hash,
-        )
-        await db.commit()
+        try:
+            upload = await upload_repo.create(
+                user_id=current_user.id,
+                filename=file.filename or "upload.mbox",
+                file_hash=file_hash,
+            )
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            existing = await upload_repo.get_by_hash(
+                user_id=current_user.id, file_hash=file_hash
+            )
+            os.unlink(temp_path)
+            if existing is None:
+                raise
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={
+                    "upload_id": str(existing.id),
+                    "status": existing.status,
+                    "message": "This file has already been uploaded.",
+                },
+            )
 
         _enqueue_mailbox_processing(
             background_tasks,
@@ -439,7 +459,7 @@ async def upload_mbox(
     return {"upload_id": str(upload.id), "status": MboxUploadStatus.PENDING}
 
 
-@router.post("/uploads/chunked", status_code=200)
+@router.post("/uploads/chunked", status_code=200, response_model=None)
 async def upload_mbox_chunk(
     background_tasks: BackgroundTasks,
     token: str = Form(...),
@@ -449,7 +469,7 @@ async def upload_mbox_chunk(
     chunk: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
-) -> dict[str, object]:
+) -> dict[str, object] | JSONResponse:
     """
     Accept one chunk of a client-side chunked mailbox upload.
 
@@ -568,12 +588,29 @@ async def upload_mbox_chunk(
                     },
                 )
 
-        upload = await upload_repo.create(
-            user_id=current_user.id,
-            filename=filename or "upload.mbox",
-            file_hash=file_hash,
-        )
-        await db.commit()
+        try:
+            upload = await upload_repo.create(
+                user_id=current_user.id,
+                filename=filename or "upload.mbox",
+                file_hash=file_hash,
+            )
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            existing = await upload_repo.get_by_hash(
+                user_id=current_user.id, file_hash=file_hash
+            )
+            os.unlink(temp_path)
+            if existing is None:
+                raise
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={
+                    "upload_id": str(existing.id),
+                    "status": existing.status,
+                    "message": "This file has already been uploaded.",
+                },
+            )
 
         _enqueue_mailbox_processing(
             background_tasks,
@@ -591,13 +628,13 @@ async def upload_mbox_chunk(
     return {"upload_id": str(upload.id), "status": MboxUploadStatus.PENDING}
 
 
-@router.post("/uploads/folder", status_code=202)
+@router.post("/uploads/folder", status_code=202, response_model=None)
 async def upload_mail_folder(
     request: Request,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
-) -> dict[str, object]:
+) -> dict[str, object] | JSONResponse:
     """
     Accept a batched mailbox export folder upload and queue it for processing.
 
@@ -663,7 +700,9 @@ async def upload_mail_folder(
         )
 
     raw_files_items = form.getlist("files")
-    files: list[UploadFile] = [v for v in raw_files_items if not isinstance(v, str)]
+    files: list[UploadFile] = [
+        cast(UploadFile, v) for v in raw_files_items if not isinstance(v, str)
+    ]
 
     logger.info(
         "folder_batch_received",
@@ -754,12 +793,29 @@ async def upload_mail_folder(
                     },
                 )
 
-        upload = await upload_repo.create(
-            user_id=current_user.id,
-            filename=folder_name,
-            file_hash=file_hash,
-        )
-        await db.commit()
+        try:
+            upload = await upload_repo.create(
+                user_id=current_user.id,
+                filename=folder_name,
+                file_hash=file_hash,
+            )
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            existing = await upload_repo.get_by_hash(
+                user_id=current_user.id, file_hash=file_hash
+            )
+            shutil.rmtree(batch_dir, ignore_errors=True)
+            if existing is None:
+                raise
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={
+                    "upload_id": str(existing.id),
+                    "status": existing.status,
+                    "message": "This folder has already been uploaded.",
+                },
+            )
 
         _enqueue_mailbox_processing(
             background_tasks,

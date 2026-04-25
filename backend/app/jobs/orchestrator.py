@@ -399,7 +399,7 @@ async def _run_identity_review_for_accounts(
         )
         for account in accounts
     ]
-    subjects_map = {
+    subjects_map: dict[str, list[str]] = {
         account.sender_domain: [] for account in accounts if account.sender_domain
     }
     reviewed, stats = await interpret_accounts_with_stats(

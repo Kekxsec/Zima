@@ -5,6 +5,7 @@ from datetime import datetime
 from sqlalchemy import (
     Boolean,
     DateTime,
+    ForeignKey,
     Index,
     Integer,
     String,
@@ -129,8 +130,11 @@ class DiscoveredAccount(Base, TimestampMixin):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False, index=True
     )
-    upload_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False, index=True
+    upload_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("mbox_uploads.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
     )
     service_name: Mapped[str] = mapped_column(String(100), nullable=False)
     display_name: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -182,7 +186,12 @@ class NewsletterSubscription(Base, TimestampMixin):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False, index=True
     )
-    upload_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    upload_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("mbox_uploads.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     sender_domain: Mapped[str] = mapped_column(String(255), nullable=False)
     sender_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     message_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)

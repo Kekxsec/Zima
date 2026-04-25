@@ -1,10 +1,15 @@
 // companion/src/client.rs
+use std::time::Duration;
+
 use anyhow::{Context, Result};
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 
-use crate::models::{
-    CompanionStatusResponse, RegisterRequest, RegisterResponse, SnapshotRequest,
-};
+use crate::models::{CompanionStatusResponse, RegisterRequest, RegisterResponse, SnapshotRequest};
+
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+// Reject server responses larger than this — defends against memory exhaustion.
+const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 
 pub struct CompanionClient {
     base_url: String,
@@ -13,22 +18,39 @@ pub struct CompanionClient {
 }
 
 impl CompanionClient {
-    pub fn new(base_url: String, token: Option<String>) -> Self {
-        Self {
+    pub fn new(base_url: String, token: Option<String>) -> Result<Self> {
+        let http = reqwest::Client::builder()
+            .use_rustls_tls()
+            .timeout(REQUEST_TIMEOUT)
+            .connect_timeout(CONNECT_TIMEOUT)
+            .build()
+            .context("Failed to build HTTP client")?;
+        Ok(Self {
             base_url,
             token,
-            http: reqwest::Client::builder()
-                .use_rustls_tls()
-                .build()
-                .expect("Failed to build HTTP client"),
-        }
+            http,
+        })
     }
 
     fn bearer(&self) -> String {
-        format!(
-            "Bearer {}",
-            self.token.as_deref().unwrap_or_default()
-        )
+        format!("Bearer {}", self.token.as_deref().unwrap_or_default())
+    }
+
+    async fn read_bounded_json<T: serde::de::DeserializeOwned>(
+        resp: reqwest::Response,
+        ctx: &'static str,
+    ) -> Result<T> {
+        let bytes = resp
+            .bytes()
+            .await
+            .with_context(|| format!("{ctx}: response body read failed"))?;
+        if bytes.len() > MAX_RESPONSE_BYTES {
+            anyhow::bail!(
+                "{ctx}: response body {} bytes exceeds {MAX_RESPONSE_BYTES} byte cap",
+                bytes.len()
+            );
+        }
+        serde_json::from_slice(&bytes).with_context(|| format!("{ctx}: JSON parse failed"))
     }
 
     pub async fn register(&self, payload: RegisterRequest) -> Result<RegisterResponse> {
@@ -48,9 +70,7 @@ impl CompanionClient {
             anyhow::bail!("Register failed ({status}): {body}");
         }
 
-        resp.json::<RegisterResponse>()
-            .await
-            .context("Failed to parse register response")
+        Self::read_bounded_json(resp, "register response").await
     }
 
     pub async fn post_snapshot(&self, raw: serde_json::Value) -> Result<()> {
@@ -90,8 +110,6 @@ impl CompanionClient {
             anyhow::bail!("Status check failed ({status}): {body}");
         }
 
-        resp.json::<CompanionStatusResponse>()
-            .await
-            .context("Failed to parse status response")
+        Self::read_bounded_json(resp, "status response").await
     }
 }

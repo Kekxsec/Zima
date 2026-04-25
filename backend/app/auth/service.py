@@ -19,8 +19,8 @@ logger = get_logger(__name__)
 
 OTP_EXPIRY_MINUTES: int = 15
 MAX_ACTIVE_TOKENS_PER_EMAIL: int = 3
-OTP_MAX_FAILURES: int = 5  # Lock account after this many consecutive bad codes
-OTP_LOCKOUT_MINUTES: int = 15  # Duration of the lockout window
+OTP_MAX_FAILURES: int = 3  # Lock account after this many consecutive bad codes
+OTP_LOCKOUT_MINUTES: int = 30  # Duration of the lockout window
 
 
 def _generate_code() -> str:
@@ -35,6 +35,15 @@ def _generate_code() -> str:
 def _hash_code(code: str) -> str:
     """SHA-256 hash of the raw OTP code. Only the hash is stored."""
     return hashlib.sha256(code.encode()).hexdigest()
+
+
+def match_token(tokens: list[AuthToken], expected_hash: str) -> AuthToken | None:
+    """Constant-time match of expected hash against active tokens."""
+    matched: AuthToken | None = None
+    for token in tokens:
+        if secrets.compare_digest(token.code_hash, expected_hash):
+            matched = token
+    return matched
 
 
 class AuthService:
@@ -193,8 +202,10 @@ class AuthService:
             await self.session.commit()
             raise AuthTokenInvalidException("Invalid or expired code.")
 
-        # get_valid_token filters: used_at IS NULL, expires_at > now, hash match.
-        token = await self.token_repo.get_valid_token(email, _hash_code(code))
+        # Fetch all unused, unexpired tokens for this email and constant-time
+        # match the hash in Python. Avoids SQL-level timing leaks.
+        active_tokens = await self.token_repo.list_active_for_email(email)
+        token = match_token(active_tokens, _hash_code(code))
 
         if not token:
             logger.warning("security.otp_verify_failed", email_domain=email_domain)
@@ -312,7 +323,8 @@ class AuthService:
                 email_domain=email.split("@")[-1],
             )
             return False
-        token = await self.token_repo.get_valid_token(email, _hash_code(code))
+        active_tokens = await self.token_repo.list_active_for_email(email)
+        token = match_token(active_tokens, _hash_code(code))
         if not token:
             locked = self._record_otp_failure(user, asset_flow=True)
             logger.warning(
@@ -375,7 +387,8 @@ class AuthService:
         if self._is_otp_locked(user, asset_flow=True):
             logger.warning("security.phone_otp_verify_locked", user_id=str(user.id))
             return False
-        token = await self.token_repo.get_valid_token(phone, _hash_code(code))
+        active_tokens = await self.token_repo.list_active_for_email(phone)
+        token = match_token(active_tokens, _hash_code(code))
         if not token:
             locked = self._record_otp_failure(user, asset_flow=True)
             logger.warning(
@@ -434,7 +447,8 @@ class AuthService:
         if self._is_otp_locked(user, asset_flow=True):
             logger.warning("security.domain_otp_verify_locked", user_id=str(user.id))
             return False
-        token = await self.token_repo.get_valid_token(admin_email, _hash_code(code))
+        active_tokens = await self.token_repo.list_active_for_email(admin_email)
+        token = match_token(active_tokens, _hash_code(code))
         if not token:
             locked = self._record_otp_failure(user, asset_flow=True)
             logger.warning(

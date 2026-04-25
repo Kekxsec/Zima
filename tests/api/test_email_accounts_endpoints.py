@@ -16,10 +16,25 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.db.models.email_accounts import DiscoveredAccount, ServiceRegistry
+from backend.app.db.models.email_accounts import (
+    DiscoveredAccount,
+    MboxUpload,
+    ServiceRegistry,
+)
 from backend.app.db.session import get_db_session
 from backend.app.main import app
 from tests.factories import AssetFactory, SignalFactory, UserFactory
+
+
+def _stub_upload_for(user_id: uuid.UUID, upload_id: uuid.UUID) -> MboxUpload:
+    """Helper: create a parent MboxUpload row so DiscoveredAccount FK resolves."""
+    return MboxUpload(
+        id=upload_id,
+        user_id=user_id,
+        filename="stub.mbox",
+        file_hash=uuid.uuid4().hex,
+    )
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -576,11 +591,14 @@ async def test_list_accounts_enriches_registry_identity_from_sender_domain(
             is_active=True,
         )
     )
+    upload_id = uuid.uuid4()
+    db_session.add(_stub_upload_for(user.id, upload_id))
+    await db_session.flush()
     db_session.add(
         DiscoveredAccount(
             id=uuid.uuid4(),
             user_id=user.id,
-            upload_id=uuid.uuid4(),
+            upload_id=upload_id,
             service_name="your",
             display_name="Your",
             email_used=primary_email,
@@ -632,11 +650,14 @@ async def test_list_accounts_enriches_short_service_labels_with_registry_identit
             is_active=True,
         )
     )
+    upload_id = uuid.uuid4()
+    db_session.add(_stub_upload_for(user.id, upload_id))
+    await db_session.flush()
     db_session.add(
         DiscoveredAccount(
             id=uuid.uuid4(),
             user_id=user.id,
-            upload_id=uuid.uuid4(),
+            upload_id=upload_id,
             service_name="ii",
             display_name="ii",
             email_used=primary_email,
@@ -749,11 +770,14 @@ async def test_export_includes_priority_tags_and_verification_guidance(
             is_active=True,
         )
     )
+    upload_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
+    db_session.add(_stub_upload_for(user.id, upload_id))
+    await db_session.flush()
     db_session.add(
         DiscoveredAccount(
             id=uuid.uuid4(),
             user_id=user.id,
-            upload_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
+            upload_id=upload_id,
             service_name="github",
             display_name="GitHub",
             email_used=primary_email,
@@ -813,9 +837,12 @@ async def test_create_alias_for_other_users_account_returns_404(
     db_session.add(victim)
     await db_session.flush()
 
+    victim_upload_id = uuid.uuid4()
+    db_session.add(_stub_upload_for(victim.id, victim_upload_id))
+    await db_session.flush()
     victim_account = DiscoveredAccount(
         user_id=victim.id,
-        upload_id=uuid.uuid4(),
+        upload_id=victim_upload_id,
         service_name="github.com",
         display_name="GitHub",
         email_used="victim@example.com",

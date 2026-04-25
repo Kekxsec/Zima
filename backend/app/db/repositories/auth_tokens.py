@@ -15,25 +15,20 @@ class AuthTokenRepository:
         """Persist a new AuthToken. Caller must commit after this returns."""
         self.session.add(token)
 
-    async def get_valid_token(self, email: str, code_hash: str) -> AuthToken | None:
+    async def list_active_for_email(self, email: str) -> list[AuthToken]:
         """
-        Returns a matching token only if it is:
-        - Correct email and code_hash
-        - Not yet used (used_at IS NULL)
-        - Not expired (expires_at > now)
-        Returns None for any other condition.
+        Returns all unused, unexpired tokens for the given email. Caller is
+        responsible for matching code_hash with secrets.compare_digest() to
+        avoid timing leaks at the SQL layer.
         """
         result = await self.session.execute(
-            select(AuthToken)
-            .where(
+            select(AuthToken).where(
                 AuthToken.email == email,
-                AuthToken.code_hash == code_hash,
                 AuthToken.used_at.is_(None),
                 AuthToken.expires_at > datetime.now(UTC),
             )
-            .limit(1)
         )
-        return result.scalar_one_or_none()
+        return list(result.scalars().all())
 
     async def count_active_for_email(self, email: str) -> int:
         """

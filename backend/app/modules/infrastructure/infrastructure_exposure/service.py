@@ -117,7 +117,7 @@ class InfrastructureExposureService(BaseModuleService):
         user_id: uuid.UUID,
         asset_id: uuid.UUID,
         asset_value: str,
-    ) -> ModuleOutcome:
+    ) -> list[SignalCreate]:
         signals: list[SignalCreate] = []
 
         # ProviderFinding is a TypedDict (= dict at runtime); LeakIX mapper
@@ -236,7 +236,7 @@ class InfrastructureExposureService(BaseModuleService):
                 )
             )
 
-        return ModuleOutcome(signals=signals)
+        return signals
 
 
 # ------------------------------------------------------------------

@@ -64,7 +64,11 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Setup { token, backend, user_id } => {
+        Commands::Setup {
+            token,
+            backend,
+            user_id,
+        } => {
             setup(token, backend, user_id).await?;
         }
         Commands::Run { interval } => {
@@ -93,7 +97,7 @@ async fn setup(token: String, backend: String, user_id: String) -> Result<()> {
     let platform = std::env::consts::OS.to_string();
     let version = env!("CARGO_PKG_VERSION").to_string();
 
-    let c = client::CompanionClient::new(backend.clone(), None);
+    let c = client::CompanionClient::new(backend.clone(), None)?;
     let resp = c
         .register(models::RegisterRequest {
             setup_token: token,
@@ -134,19 +138,28 @@ async fn run_daemon(interval_secs: u64) -> Result<()> {
 async fn post_snapshot() -> Result<()> {
     let cfg = config::load()?;
     let token = auth::load_token()?;
-    let c = client::CompanionClient::new(cfg.backend_url, Some(token));
+    let c = client::CompanionClient::new(cfg.backend_url, Some(token))?;
     snapshot::collect_and_send(&c).await
 }
 
 async fn show_status() -> Result<()> {
     let cfg = config::load()?;
     let token = auth::load_token()?;
-    let c = client::CompanionClient::new(cfg.backend_url, Some(token));
+    let c = client::CompanionClient::new(cfg.backend_url, Some(token))?;
     let s = c.get_status().await?;
     println!("Connected:       {}", s.connected);
-    println!("Last seen:       {}", s.last_seen_at.unwrap_or_else(|| "never".into()));
-    println!("Platform:        {}", s.platform.unwrap_or_else(|| "unknown".into()));
-    println!("Version:         {}", s.version.unwrap_or_else(|| "unknown".into()));
+    println!(
+        "Last seen:       {}",
+        s.last_seen_at.unwrap_or_else(|| "never".into())
+    );
+    println!(
+        "Platform:        {}",
+        s.platform.unwrap_or_else(|| "unknown".into())
+    );
+    println!(
+        "Version:         {}",
+        s.version.unwrap_or_else(|| "unknown".into())
+    );
     println!("Extension count: {}", s.extension_count);
     Ok(())
 }

@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Index, String, UniqueConstraint, func
+from sqlalchemy import DateTime, ForeignKey, Index, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -55,7 +55,10 @@ class ExtensionSnapshot(Base):
         UUID(as_uuid=True), nullable=False, index=True
     )
     extension_session_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("extension_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     raw_snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(

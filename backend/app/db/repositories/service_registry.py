@@ -161,8 +161,8 @@ class ServiceRegistryRepository:
         # Domain-token fallback for partially-obscured sender domains
         service_map = {s.service_name: s for s in services}
         for candidate_name in _service_name_candidates_from_domain(domain):
-            entry = service_map.get(candidate_name)
-            if entry is not None:
-                return entry
+            token_match = service_map.get(candidate_name)
+            if token_match is not None:
+                return token_match
 
         return None

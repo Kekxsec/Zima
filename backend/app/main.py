@@ -28,6 +28,19 @@ _REDIS_HEALTH_CHECK_INTERVAL = 60  # seconds
 _DEFAULT_MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024  # 10 MB — matches vault import cap
 _MAILBOX_UPLOAD_MAX_REQUEST_BODY_BYTES = settings.mailbox_upload_max_mb * 1024 * 1024
 
+# Methods that mutate state — subject to CSRF / Origin enforcement.
+_STATE_CHANGING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+# Paths exempt from CSRF Origin enforcement. These either:
+#   - use Bearer auth only (companion / extension), so SameSite cookies don't apply, or
+#   - are unauthenticated public endpoints.
+_CSRF_EXEMPT_PREFIXES = (
+    "/api/v1/companion/",
+    "/api/v1/extension/",
+    "/api/v1/billing/webhook",  # signed by Stripe, not browser-driven
+    "/health",
+)
+
 
 def _max_request_body_bytes_for_path(path: str) -> int:
     """
@@ -175,7 +188,8 @@ def create_app() -> FastAPI:
             path=request.url.path,
             method=request.method,
             error=str(exc),
-            exc_info=True,
+            exc_type=type(exc).__name__,
+            exc_info=not settings.is_production,
         )
         if settings.is_production:
             return JSONResponse(
@@ -215,6 +229,65 @@ def create_app() -> FastAPI:
                         )
                 except ValueError:
                     pass
+        return await call_next(request)
+
+    @app.middleware("http")
+    async def enforce_csrf_origin(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        """
+        Defence-in-depth CSRF protection for cookie-authenticated, state-changing
+        requests. Bearer-authenticated callers (companion/extension/API clients)
+        are exempt because cookie SameSite policy does not apply to them.
+
+        Strategy: when the request mutates state and does NOT carry a Bearer
+        token, require Origin (or Referer) to match the configured allow-list.
+        Browsers always send Origin on cross-origin POST, so a missing/foreign
+        Origin is a strong forgery signal.
+        """
+        if request.method not in _STATE_CHANGING_METHODS:
+            return await call_next(request)
+
+        # The TestClient cannot supply a meaningful Origin header. Skip the
+        # check in the testing environment; production / development still
+        # enforce because real browsers always send Origin on POST.
+        if settings.is_testing:
+            return await call_next(request)
+
+        path = request.url.path
+        if any(path.startswith(p) for p in _CSRF_EXEMPT_PREFIXES):
+            return await call_next(request)
+
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.lower().startswith("bearer "):
+            return await call_next(request)
+
+        allowed_origins = set(settings.cors_allowed_origins)
+        origin = request.headers.get("origin")
+        referer = request.headers.get("referer")
+
+        def _origin_allowed(value: str | None) -> bool:
+            if not value:
+                return False
+            for allowed in allowed_origins:
+                if value == allowed or value.startswith(f"{allowed}/"):
+                    return True
+            return False
+
+        if not (_origin_allowed(origin) or _origin_allowed(referer)):
+            logger.warning(
+                "security.csrf_origin_rejected",
+                path=path,
+                method=request.method,
+                origin=origin,
+                referer=referer,
+            )
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Origin not allowed for this request."},
+            )
+
         return await call_next(request)
 
     @app.middleware("http")

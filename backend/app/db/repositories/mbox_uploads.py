@@ -1,8 +1,9 @@
 # backend/app/db/repositories/mbox_uploads.py
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import CursorResult, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.db.models.email_accounts import MboxUpload, MboxUploadStatus
@@ -51,10 +52,13 @@ class MboxUploadRepository:
         return result.scalar_one_or_none()
 
     async def set_processing(self, upload_id: uuid.UUID) -> None:
-        result = await self.session.execute(
-            update(MboxUpload)
-            .where(MboxUpload.id == upload_id)
-            .values(status=MboxUploadStatus.PROCESSING)
+        result = cast(
+            CursorResult[Any],
+            await self.session.execute(
+                update(MboxUpload)
+                .where(MboxUpload.id == upload_id)
+                .values(status=MboxUploadStatus.PROCESSING)
+            ),
         )
         if result.rowcount == 0:
             raise ValueError(f"Mbox upload {upload_id} not found.")
@@ -65,28 +69,34 @@ class MboxUploadRepository:
         accounts_discovered: int,
         signals_created: int,
     ) -> None:
-        result = await self.session.execute(
-            update(MboxUpload)
-            .where(MboxUpload.id == upload_id)
-            .values(
-                status=MboxUploadStatus.COMPLETED,
-                accounts_discovered=accounts_discovered,
-                signals_created=signals_created,
-                processed_at=datetime.now(UTC),
-            )
+        result = cast(
+            CursorResult[Any],
+            await self.session.execute(
+                update(MboxUpload)
+                .where(MboxUpload.id == upload_id)
+                .values(
+                    status=MboxUploadStatus.COMPLETED,
+                    accounts_discovered=accounts_discovered,
+                    signals_created=signals_created,
+                    processed_at=datetime.now(UTC),
+                )
+            ),
         )
         if result.rowcount == 0:
             raise ValueError(f"Mbox upload {upload_id} not found.")
 
     async def set_failed(self, upload_id: uuid.UUID, error_detail: str) -> None:
-        result = await self.session.execute(
-            update(MboxUpload)
-            .where(MboxUpload.id == upload_id)
-            .values(
-                status=MboxUploadStatus.FAILED,
-                error_detail=error_detail[:1024],
-                processed_at=datetime.now(UTC),
-            )
+        result = cast(
+            CursorResult[Any],
+            await self.session.execute(
+                update(MboxUpload)
+                .where(MboxUpload.id == upload_id)
+                .values(
+                    status=MboxUploadStatus.FAILED,
+                    error_detail=error_detail[:1024],
+                    processed_at=datetime.now(UTC),
+                )
+            ),
         )
         if result.rowcount == 0:
             raise ValueError(f"Mbox upload {upload_id} not found.")

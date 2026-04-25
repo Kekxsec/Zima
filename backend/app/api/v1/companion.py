@@ -23,6 +23,7 @@ from backend.app.api.dependencies import (
     get_db_session,
 )
 from backend.app.auth.models import AuthToken, User
+from backend.app.auth.service import match_token
 from backend.app.auth.utils import create_companion_token
 from backend.app.core.config import settings
 from backend.app.core.crypto import encrypt_field
@@ -122,7 +123,8 @@ async def register_companion(
     code_hash = hashlib.sha256(body.setup_token.encode()).hexdigest()
 
     token_repo = AuthTokenRepository(db)
-    auth_token = await token_repo.get_valid_token(key, code_hash)
+    active_tokens = await token_repo.list_active_for_email(key)
+    auth_token = match_token(active_tokens, code_hash)
     if auth_token is None:
         raise credentials_exception
 

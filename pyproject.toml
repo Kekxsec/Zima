@@ -93,3 +93,8 @@ filterwarnings = [
     "ignore::DeprecationWarning:httpx",
     "ignore::DeprecationWarning:sqlalchemy",
 ]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.19.1",
+]

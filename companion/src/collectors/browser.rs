@@ -8,6 +8,10 @@ use anyhow::Result;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
+// Browser-extension manifests are tiny JSON files. Reject anything larger than
+// this — defends against accidental (or hostile) huge files filling memory.
+const MAX_MANIFEST_BYTES: u64 = 256 * 1024;
+
 #[derive(Debug, Serialize)]
 pub struct Extension {
     pub id: String,
@@ -72,6 +76,18 @@ fn read_extensions(ext_dir: &Path) -> Vec<Extension> {
             if !manifest_path.is_file() {
                 continue;
             }
+            let metadata = match std::fs::metadata(&manifest_path) {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            if metadata.len() > MAX_MANIFEST_BYTES {
+                tracing::warn!(
+                    "Skipping oversized manifest at {}: {} bytes",
+                    manifest_path.display(),
+                    metadata.len()
+                );
+                continue;
+            }
             if let Ok(data) = std::fs::read_to_string(&manifest_path) {
                 if let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&data) {
                     let name = manifest
@@ -111,7 +127,10 @@ fn browser_base_paths() -> Vec<(String, Vec<PathBuf>)> {
         let lib = home.join("Library/Application Support");
         vec![
             ("chrome".into(), vec![lib.join("Google/Chrome")]),
-            ("brave".into(), vec![lib.join("BraveSoftware/Brave-Browser")]),
+            (
+                "brave".into(),
+                vec![lib.join("BraveSoftware/Brave-Browser")],
+            ),
             ("edge".into(), vec![lib.join("Microsoft Edge")]),
         ]
     }
@@ -121,7 +140,10 @@ fn browser_base_paths() -> Vec<(String, Vec<PathBuf>)> {
         let config = home.join(".config");
         vec![
             ("chrome".into(), vec![config.join("google-chrome")]),
-            ("brave".into(), vec![config.join("BraveSoftware/Brave-Browser")]),
+            (
+                "brave".into(),
+                vec![config.join("BraveSoftware/Brave-Browser")],
+            ),
             ("edge".into(), vec![config.join("microsoft-edge")]),
         ]
     }
@@ -130,12 +152,18 @@ fn browser_base_paths() -> Vec<(String, Vec<PathBuf>)> {
     {
         let appdata = dirs::data_dir().unwrap_or_default();
         vec![
-            ("chrome".into(), vec![appdata.join("Google/Chrome/User Data")]),
+            (
+                "chrome".into(),
+                vec![appdata.join("Google/Chrome/User Data")],
+            ),
             (
                 "brave".into(),
                 vec![appdata.join("BraveSoftware/Brave-Browser/User Data")],
             ),
-            ("edge".into(), vec![appdata.join("Microsoft/Edge/User Data")]),
+            (
+                "edge".into(),
+                vec![appdata.join("Microsoft/Edge/User Data")],
+            ),
         ]
     }
 

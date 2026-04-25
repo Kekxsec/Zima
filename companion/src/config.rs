@@ -23,6 +23,22 @@ pub fn save(cfg: &CompanionConfig) -> Result<()> {
     let contents = toml::to_string(cfg).context("Failed to serialise config")?;
     std::fs::write(&path, contents)
         .with_context(|| format!("Cannot write config to: {}", path.display()))?;
+    restrict_owner_only(&path)?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn restrict_owner_only(path: &std::path::Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let perms = std::fs::Permissions::from_mode(0o600);
+    std::fs::set_permissions(path, perms)
+        .with_context(|| format!("Cannot tighten permissions on {}", path.display()))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn restrict_owner_only(_path: &std::path::Path) -> Result<()> {
+    // On Windows the file inherits the user-profile ACL, which is owner-only by default.
     Ok(())
 }
 

@@ -12,9 +12,9 @@ pub struct OsInfo {
     pub platform: String,
     pub os_version: Option<String>,
     pub disk_encryption: Option<bool>,
-    pub sip_enabled: Option<bool>,       // macOS only
-    pub firewall_active: Option<bool>,   // Linux/macOS
-    pub raw: serde_json::Value,          // platform-specific extras
+    pub sip_enabled: Option<bool>,     // macOS only
+    pub firewall_active: Option<bool>, // Linux/macOS
+    pub raw: serde_json::Value,        // platform-specific extras
 }
 
 /// Returns the stable machine identifier used to compute machine_id.
@@ -88,16 +88,17 @@ fn _collect() -> Result<OsInfo> {
     let os_version = std::fs::read_to_string("/etc/os-release")
         .ok()
         .and_then(|s| {
-            s.lines()
-                .find(|l| l.starts_with("PRETTY_NAME="))
-                .map(|l| l.trim_start_matches("PRETTY_NAME=").trim_matches('"').to_string())
+            s.lines().find(|l| l.starts_with("PRETTY_NAME=")).map(|l| {
+                l.trim_start_matches("PRETTY_NAME=")
+                    .trim_matches('"')
+                    .to_string()
+            })
         });
 
     let ufw_out = run_cmd("ufw", &["status"]).unwrap_or_default();
     let firewall_active = Some(ufw_out.contains("Status: active"));
 
-    let lvm_out = run_cmd("lsblk", &["--output", "NAME,TYPE,FSTYPE", "--json"])
-        .unwrap_or_default();
+    let lvm_out = run_cmd("lsblk", &["--output", "NAME,TYPE,FSTYPE", "--json"]).unwrap_or_default();
 
     Ok(OsInfo {
         platform: "linux".into(),
@@ -127,7 +128,11 @@ fn _machine_id() -> Result<String> {
 fn _collect() -> Result<OsInfo> {
     let info_out = run_cmd(
         "powershell",
-        &["-NoProfile", "-Command", "Get-ComputerInfo | ConvertTo-Json"],
+        &[
+            "-NoProfile",
+            "-Command",
+            "Get-ComputerInfo | ConvertTo-Json",
+        ],
     )
     .unwrap_or_default();
 

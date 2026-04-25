@@ -17,10 +17,9 @@ from pathlib import Path
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import (
-    AsyncSession,
+    async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.orm import sessionmaker
 
 from backend.app.core.config import settings
 from backend.app.db.models.email_accounts import ServiceRegistry
@@ -2062,7 +2061,7 @@ def _load_custom() -> list[tuple[str, str, str, list[str], str | None, str | Non
 
 async def seed() -> None:
     engine = create_async_engine(settings.database_url, echo=False)
-    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async_session = async_sessionmaker(engine, expire_on_commit=False)
 
     all_services = SERVICES + _load_custom()
 
